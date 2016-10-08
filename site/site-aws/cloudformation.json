@@ -69,6 +69,15 @@
     }
   },
   "Parameters": {
+    "ElbSSLCertificateId": {
+      "Default": "arn:",
+      "Description": "An ARN to a SSL certificate. See http://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_server-certs.html. If not specified, the self-signed SSL certificates of each ECS container are used, and a TCP loadbalancer is used for HTTPS so that the SSL terminates on the ECS containers",
+      "Type": "String",
+      "MinLength": "1",
+      "MaxLength": "64",
+      "AllowedPattern": "arn:[a-zA-Z0-9:_.-]*",
+      "ConstraintDescription": "must be an Amazon Resource Name"
+    },
     "DrupalDBName": {
       "Default": "drupal",
       "Description": "MySQL database name for Drupal",
@@ -253,29 +262,29 @@
       "Description": "ECS Cluster Name",
       "Default": "default"
     },
-    "EcsPort": {
+    "EcsHttpPort": {
       "Type": "String",
-      "Description": "Optional - Security Group port to open on ECS instances - defaults to port 80",
+      "Description": "Optional - Security Group HTTP port to open on ECS instances - defaults to port 80",
       "Default": "80"
     },
-    "ElbPort": {
+    "EcsHttpsPort": {
       "Type": "String",
-      "Description": "Optional - Security Group port to open on ELB - port 80 will be open by default",
+      "Description": "Optional - Security Group HTTPS port to open on ECS instances - defaults to port 443",
+      "Default": "443"
+    },
+    "ElbHttpPort": {
+      "Type": "String",
+      "Description": "Optional - Security Group HTTP port to open on ELB - port 80 will be open by default",
       "Default": "80"
     },
-    "ElbProtocol": {
+    "ElbHttpsPort": {
       "Type": "String",
-      "Description": "Optional - ELB Protocol - defaults to HTTP",
-      "Default": "HTTP"
-    },
-    "ElbHealthCheckTarget": {
-      "Type": "String",
-      "Description": "Optional - Health Check Target for ELB - defaults to HTTP:80/",
-      "Default": "HTTP:80/"
+      "Description": "Optional - Security Group HTTPS port to open on ELB - port 443 will be open by default",
+      "Default": "443"
     },
     "SourceCidr": {
       "Type": "String",
-      "Description": "Optional - CIDR/IP range for EcsPort and ElbPort - defaults to 0.0.0.0/0",
+      "Description": "Optional - CIDR/IP range for EcsHttpPort and EcsHttpsPort and ElbHttpPort and ElbHttpsPort - defaults to 0.0.0.0/0",
       "Default": "0.0.0.0/0"
     },
     "EcsEndpoint": {
@@ -295,6 +304,14 @@
     }
   },
   "Conditions": {
+    "TerminateSSLOnHosts": {
+      "Fn::Equals": [
+        {
+          "Ref": "ElbSSLCertificateId"
+        },
+        "arn:"
+      ]
+    },
     "CreateVpcResources": {
       "Fn::Equals": [
         {
@@ -724,10 +741,22 @@
           {
             "IpProtocol": "tcp",
             "FromPort": {
-              "Ref": "ElbPort"
+              "Ref": "ElbHttpPort"
             },
             "ToPort": {
-              "Ref": "ElbPort"
+              "Ref": "ElbHttpPort"
+            },
+            "CidrIp": {
+              "Ref": "SourceCidr"
+            }
+          },
+          {
+            "IpProtocol": "tcp",
+            "FromPort": {
+              "Ref": "ElbHttpsPort"
+            },
+            "ToPort": {
+              "Ref": "ElbHttpsPort"
             },
             "CidrIp": {
               "Ref": "SourceCidr"
@@ -763,10 +792,10 @@
               {
                 "IpProtocol": "tcp",
                 "FromPort": {
-                  "Ref": "EcsPort"
+                  "Ref": "EcsHttpPort"
                 },
                 "ToPort": {
-                  "Ref": "EcsPort"
+                  "Ref": "EcsHttpPort"
                 },
                 "CidrIp": {
                   "Ref": "SourceCidr"
@@ -774,8 +803,12 @@
               },
               {
                 "IpProtocol": "tcp",
-                "FromPort": "443",
-                "ToPort": "443",
+                "FromPort": {
+                  "Ref": "EcsHttpsPort"
+                },
+                "ToPort": {
+                  "Ref": "EcsHttpsPort"
+                },
                 "CidrIp": {
                   "Ref": "SourceCidr"
                 }
@@ -801,10 +834,10 @@
               {
                 "IpProtocol": "tcp",
                 "FromPort": {
-                  "Ref": "EcsPort"
+                  "Ref": "EcsHttpPort"
                 },
                 "ToPort": {
-                  "Ref": "EcsPort"
+                  "Ref": "EcsHttpPort"
                 },
                 "CidrIp": {
                   "Ref": "SourceCidr"
@@ -812,8 +845,12 @@
               },
               {
                 "IpProtocol": "tcp",
-                "FromPort": "443",
-                "ToPort": "443",
+                "FromPort": {
+                  "Ref": "EcsHttpsPort"
+                },
+                "ToPort": {
+                  "Ref": "EcsHttpsPort"
+                },
                 "CidrIp": {
                   "Ref": "SourceCidr"
                 }
@@ -857,22 +894,55 @@
         "Listeners": [
           {
             "LoadBalancerPort": {
-              "Ref": "ElbPort"
+              "Ref": "ElbHttpPort"
             },
             "InstancePort": {
-              "Ref": "EcsPort"
+              "Ref": "EcsHttpPort"
+            },
+            "Protocol": "HTTP"
+          },
+          {
+            "LoadBalancerPort": {
+              "Ref": "ElbHttpsPort"
+            },
+            "InstancePort": {
+              "Ref": "EcsHttpsPort"
+            },
+            "InstanceProtocol": {
+              "Fn::If": [
+                "TerminateSSLOnHosts",
+                "TCP",
+                "HTTPS"
+              ]
             },
             "Protocol": {
-              "Ref": "ElbProtocol"
+              "Fn::If": [
+                "TerminateSSLOnHosts",
+                "TCP",
+                "HTTPS"
+              ]
+            },
+            "SSLCertificateId": {
+              "Fn::If": [
+                "TerminateSSLOnHosts",
+                "",
+                {
+                  "Ref": "ElbSSLCertificateId"
+                }
+              ]
             }
           }
         ],
         "HealthCheck": {
           "Target": {
-            "Ref": "ElbHealthCheckTarget"
+            "Fn::If": [
+              "TerminateSSLOnHosts",
+              "HTTPS:443/",
+              "HTTPS:443/"
+            ]
           },
-          "HealthyThreshold": "2",
-          "UnhealthyThreshold": "10",
+          "HealthyThreshold": "5",
+          "UnhealthyThreshold": "2",
           "Interval": "30",
           "Timeout": "5"
         }
@@ -899,19 +969,52 @@
         "Listeners": [
           {
             "LoadBalancerPort": {
-              "Ref": "ElbPort"
+              "Ref": "ElbHttpPort"
             },
             "InstancePort": {
-              "Ref": "EcsPort"
+              "Ref": "EcsHttpPort"
+            },
+            "Protocol": "HTTP"
+          },
+          {
+            "LoadBalancerPort": {
+              "Ref": "ElbHttpsPort"
+            },
+            "InstancePort": {
+              "Ref": "EcsHttpsPort"
+            },
+            "InstanceProtocol": {
+              "Fn::If": [
+                "TerminateSSLOnHosts",
+                "TCP",
+                "HTTPS"
+              ]
             },
             "Protocol": {
-              "Ref": "ElbProtocol"
+              "Fn::If": [
+                "TerminateSSLOnHosts",
+                "TCP",
+                "HTTPS"
+              ]
+            },
+            "SSLCertificateId": {
+              "Fn::If": [
+                "TerminateSSLOnHosts",
+                "",
+                {
+                  "Ref": "ElbSSLCertificateId"
+                }
+              ]
             }
           }
         ],
         "HealthCheck": {
           "Target": {
-            "Ref": "ElbHealthCheckTarget"
+            "Fn::If": [
+              "TerminateSSLOnHosts",
+              "HTTPS:443/",
+              "HTTPS:443/"
+            ]
           },
           "HealthyThreshold": "2",
           "UnhealthyThreshold": "10",
