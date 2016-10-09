@@ -1,0 +1,1300 @@
+---
+  AWSTemplateFormatVersion: "2010-09-09"
+  Description: "AWS CloudFormation template to create a new VPC or use an existing VPC for ECS deployment for plainlychrist.org"
+  Mappings: 
+    VpcCidrs: 
+      eu-central-1: 
+        vpc: "10.0.0.0/16"
+        pubsubnet1: "10.0.0.0/24"
+        pubsubnet2: "10.0.1.0/24"
+        prvsubnet1: "10.0.2.0/24"
+        prvsubnet2: "10.0.3.0/24"
+      sa-east-1: 
+        vpc: "10.0.0.0/16"
+        pubsubnet1: "10.0.0.0/24"
+        pubsubnet2: "10.0.1.0/24"
+        prvsubnet1: "10.0.2.0/24"
+        prvsubnet2: "10.0.3.0/24"
+      ap-northeast-1: 
+        vpc: "10.0.0.0/16"
+        pubsubnet1: "10.0.0.0/24"
+        pubsubnet2: "10.0.1.0/24"
+        prvsubnet1: "10.0.2.0/24"
+        prvsubnet2: "10.0.3.0/24"
+      eu-west-1: 
+        vpc: "10.0.0.0/16"
+        pubsubnet1: "10.0.0.0/24"
+        pubsubnet2: "10.0.1.0/24"
+        prvsubnet1: "10.0.2.0/24"
+        prvsubnet2: "10.0.3.0/24"
+      us-east-1: 
+        vpc: "10.0.0.0/16"
+        pubsubnet1: "10.0.0.0/24"
+        pubsubnet2: "10.0.1.0/24"
+        prvsubnet1: "10.0.2.0/24"
+        prvsubnet2: "10.0.3.0/24"
+      us-west-1: 
+        vpc: "10.0.0.0/16"
+        pubsubnet1: "10.0.0.0/24"
+        pubsubnet2: "10.0.1.0/24"
+        prvsubnet1: "10.0.2.0/24"
+        prvsubnet2: "10.0.3.0/24"
+      us-west-2: 
+        vpc: "10.0.0.0/16"
+        pubsubnet1: "10.0.0.0/24"
+        pubsubnet2: "10.0.1.0/24"
+        prvsubnet1: "10.0.2.0/24"
+        prvsubnet2: "10.0.3.0/24"
+      ap-southeast-2: 
+        vpc: "10.0.0.0/16"
+        pubsubnet1: "10.0.0.0/24"
+        pubsubnet2: "10.0.1.0/24"
+        prvsubnet1: "10.0.2.0/24"
+        prvsubnet2: "10.0.3.0/24"
+      ap-southeast-1: 
+        vpc: "10.0.0.0/16"
+        pubsubnet1: "10.0.0.0/24"
+        pubsubnet2: "10.0.1.0/24"
+        prvsubnet1: "10.0.2.0/24"
+        prvsubnet2: "10.0.3.0/24"
+  Parameters: 
+    ElbSSLCertificateId: 
+      Default: "arn:"
+      Description: "An ARN to a SSL certificate. See http://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_server-certs.html. If not specified, the self-signed SSL certificates of each ECS container are used, and a TCP loadbalancer is used for HTTPS so that the SSL terminates on the ECS containers"
+      Type: "String"
+      MinLength: "1"
+      MaxLength: "64"
+      AllowedPattern: "arn:[a-zA-Z0-9:_.-]*"
+      ConstraintDescription: "must be an Amazon Resource Name"
+    DrupalDBName: 
+      Default: "drupal"
+      Description: "MySQL database name for Drupal"
+      Type: "String"
+      MinLength: "1"
+      MaxLength: "64"
+      AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*"
+      ConstraintDescription: "must begin with a letter and contain only alphanumeric characters."
+    DrupalDBUser: 
+      Default: "drupal"
+      Description: "Username for MySQL database access by Drupal"
+      Type: "String"
+      MinLength: "1"
+      MaxLength: "16"
+      AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*"
+      ConstraintDescription: "must begin with a letter and contain only alphanumeric characters."
+    DrupalDBPassword: 
+      NoEcho: "true"
+      Description: "Password for MySQL database access by Drupal"
+      Type: "String"
+      MinLength: "8"
+      MaxLength: "41"
+      AllowedPattern: "[a-zA-Z0-9]*"
+      ConstraintDescription: "must be between 8 and 41 characters, and contain only alphanumeric characters."
+    WebAdminPassword: 
+      NoEcho: "true"
+      Description: "Password for logging into Drupal as the first user (the root administrator)"
+      Type: "String"
+      MinLength: "8"
+      MaxLength: "41"
+      AllowedPattern: "[a-zA-Z0-9]*"
+      ConstraintDescription: "must be between 8 and 41 characters, and contain only alphanumeric characters."
+    DrupalDBAllocatedStorage: 
+      Default: "5"
+      Description: "The size of the Drupal database (Gb)"
+      Type: "Number"
+      MinValue: "5"
+      MaxValue: "1024"
+      ConstraintDescription: "must be between 5 and 1024Gb."
+    DrupalDBInstanceClass: 
+      Description: "The Drupal database instance type"
+      Type: "String"
+      Default: "db.t2.micro"
+      AllowedValues: 
+        - "db.t1.micro"
+        - "db.m1.small"
+        - "db.m1.medium"
+        - "db.m1.large"
+        - "db.m1.xlarge"
+        - "db.m2.xlarge"
+        - "db.m2.2xlarge"
+        - "db.m2.4xlarge"
+        - "db.m3.medium"
+        - "db.m3.large"
+        - "db.m3.xlarge"
+        - "db.m3.2xlarge"
+        - "db.m4.large"
+        - "db.m4.xlarge"
+        - "db.m4.2xlarge"
+        - "db.m4.4xlarge"
+        - "db.m4.10xlarge"
+        - "db.r3.large"
+        - "db.r3.xlarge"
+        - "db.r3.2xlarge"
+        - "db.r3.4xlarge"
+        - "db.r3.8xlarge"
+        - "db.m2.xlarge"
+        - "db.m2.2xlarge"
+        - "db.m2.4xlarge"
+        - "db.cr1.8xlarge"
+        - "db.t2.micro"
+        - "db.t2.small"
+        - "db.t2.medium"
+        - "db.t2.large"
+      ConstraintDescription: "must select a valid database instance type."
+    DrupalMultiAZDatabase: 
+      Default: "false"
+      Description: "Create a multi-AZ MySQL Amazon RDS database instance for Drupal"
+      Type: "String"
+      AllowedValues: 
+        - "true"
+        - "false"
+      ConstraintDescription: "must be either true or false."
+    DrupalDBEngine: 
+      Default: "MySQL"
+      Description: "The Drupal database engine (Aurora is a lower-cost MySQL-compatible RDS database engine for Multi-AZ)"
+      Type: "String"
+      AllowedValues: 
+        - "Aurora"
+        - "MySQL"
+      ConstraintDescription: "must be either Aurora or MySQL."
+    EcsAmiId: 
+      Type: "String"
+      Description: "ECS AMI Id"
+      Default: "ami-2d1bce4d"
+    EcsInstanceType: 
+      Type: "String"
+      Description: "ECS EC2 instance type"
+      Default: "t2.micro"
+      AllowedValues: 
+        - "t2.micro"
+        - "t2.small"
+        - "t2.medium"
+        - "t2.large"
+        - "m4.large"
+        - "m4.xlarge"
+        - "m4.2xlarge"
+        - "m4.4xlarge"
+        - "m4.10xlarge"
+        - "m3.medium"
+        - "m3.large"
+        - "m3.xlarge"
+        - "m3.2xlarge"
+        - "c4.large"
+        - "c4.xlarge"
+        - "c4.2xlarge"
+        - "c4.4xlarge"
+        - "c4.8xlarge"
+        - "c3.large"
+        - "c3.xlarge"
+        - "c3.2xlarge"
+        - "c3.4xlarge"
+        - "c3.8xlarge"
+        - "r3.large"
+        - "r3.xlarge"
+        - "r3.2xlarge"
+        - "r3.4xlarge"
+        - "r3.8xlarge"
+        - "i2.xlarge"
+        - "i2.2xlarge"
+        - "i2.4xlarge"
+        - "i2.8xlarge"
+      ConstraintDescription: "must be a valid EC2 instance type."
+    KeyName: 
+      Type: "String"
+      Description: "Optional - Name of an existing EC2 KeyPair to enable SSH access to the ECS instances"
+      Default: "ecs-login"
+    VpcId: 
+      Type: "String"
+      Description: "Optional - VPC Id of existing VPC. Leave blank to have a new VPC created"
+      Default: ""
+      AllowedPattern: "^(?:vpc-[0-9a-f]{8}|)$"
+      ConstraintDescription: "VPC Id must begin with 'vpc-' or leave blank to have a new VPC created"
+    ECSSubnetIds: 
+      Type: "CommaDelimitedList"
+      Description: "Optional - Comma separated list of existing VPC Subnet Ids where ECS instances will run; usually a public subnet if it already exists"
+      Default: ""
+    DBSubnetIds: 
+      Type: "CommaDelimitedList"
+      Description: "Optional - Comma separated list of existing VPC Subnet Ids where database instances will run; usually a private subnet if it already exists"
+      Default: ""
+    AsgMaxSize: 
+      Type: "Number"
+      Description: "Maximum size and initial Desired Capacity of ECS Auto Scaling Group"
+      Default: "1"
+    IamRoleInstanceProfile: 
+      Type: "String"
+      Description: "Name or the Amazon Resource Name (ARN) of the instance profile associated with the IAM role for the instance"
+      Default: "ecsInstanceRole"
+    EcsClusterName: 
+      Type: "String"
+      Description: "ECS Cluster Name"
+      Default: "default"
+    EcsHttpPort: 
+      Type: "String"
+      Description: "Optional - Security Group HTTP port to open on ECS instances - defaults to port 80"
+      Default: "80"
+    EcsHttpsPort: 
+      Type: "String"
+      Description: "Optional - Security Group HTTPS port to open on ECS instances - defaults to port 443"
+      Default: "443"
+    ElbHttpPort: 
+      Type: "String"
+      Description: "Optional - Security Group HTTP port to open on ELB - port 80 will be open by default"
+      Default: "80"
+    ElbHttpsPort: 
+      Type: "String"
+      Description: "Optional - Security Group HTTPS port to open on ELB - port 443 will be open by default"
+      Default: "443"
+    SourceCidr: 
+      Type: "String"
+      Description: "Optional - CIDR/IP range for EcsHttpPort and EcsHttpsPort and ElbHttpPort and ElbHttpsPort - defaults to 0.0.0.0/0"
+      Default: "0.0.0.0/0"
+    EcsEndpoint: 
+      Type: "String"
+      Description: "Optional : ECS Endpoint for the ECS Agent to connect to"
+      Default: ""
+    CreateElasticLoadBalancer: 
+      Type: "String"
+      Description: "Optional : When set to true, creates a ELB for ECS Service"
+      Default: "false"
+    VpcAvailabilityZones: 
+      Type: "CommaDelimitedList"
+      Description: "Optional : Comma-delimited list of two VPC availability zones in which to create subnets"
+      Default: "us-west-2c,us-west-2a,us-west-2b"
+  Conditions: 
+    TerminateSSLOnHosts: 
+      Fn::Equals: 
+        - 
+          Ref: "ElbSSLCertificateId"
+        - "arn:"
+    CreateVpcResources: 
+      Fn::Equals: 
+        - 
+          Ref: "VpcId"
+        - ""
+    ExistingVpcResources: 
+      Fn::Not: 
+        - 
+          Fn::Equals: 
+            - 
+              Ref: "VpcId"
+            - ""
+    SetEndpointToECSAgent: 
+      Fn::Not: 
+        - 
+          Fn::Equals: 
+            - 
+              Ref: "EcsEndpoint"
+            - ""
+    CreateELBForExistingVpc: 
+      Fn::And: 
+        - 
+          Fn::Equals: 
+            - 
+              Ref: "CreateElasticLoadBalancer"
+            - "true"
+        - 
+          Condition: "ExistingVpcResources"
+    CreateELBForNewVpc: 
+      Fn::And: 
+        - 
+          Fn::Equals: 
+            - 
+              Ref: "CreateElasticLoadBalancer"
+            - "true"
+        - 
+          Condition: "CreateVpcResources"
+    CreateELB: 
+      Fn::Or: 
+        - 
+          Condition: "CreateELBForExistingVpc"
+        - 
+          Condition: "CreateELBForNewVpc"
+    CreateEC2LCWithKeyPair: 
+      Fn::Not: 
+        - 
+          Fn::Equals: 
+            - 
+              Ref: "KeyName"
+            - ""
+    CreateEC2LCWithoutKeyPair: 
+      Fn::Equals: 
+        - 
+          Ref: "KeyName"
+        - ""
+    UseSpecifiedVpcAvailabilityZones: 
+      Fn::Not: 
+        - 
+          Fn::Equals: 
+            - 
+              Fn::Join: 
+                - ""
+                - 
+                  Ref: "VpcAvailabilityZones"
+            - ""
+  Resources: 
+    Vpc: 
+      Condition: "CreateVpcResources"
+      Type: "AWS::EC2::VPC"
+      Properties: 
+        CidrBlock: 
+          Fn::FindInMap: 
+            - "VpcCidrs"
+            - 
+              Ref: "AWS::Region"
+            - "vpc"
+        EnableDnsSupport: "true"
+        EnableDnsHostnames: "true"
+      Metadata: 
+        AWS::CloudFormation::Designer: 
+          id: "30e0d2a4-e6b5-4ff0-a20b-272e5a4d1ad4"
+    PubSubnetAz1: 
+      Condition: "CreateVpcResources"
+      Type: "AWS::EC2::Subnet"
+      Properties: 
+        VpcId: 
+          Ref: "Vpc"
+        CidrBlock: 
+          Fn::FindInMap: 
+            - "VpcCidrs"
+            - 
+              Ref: "AWS::Region"
+            - "pubsubnet1"
+        AvailabilityZone: 
+          Fn::If: 
+            - "UseSpecifiedVpcAvailabilityZones"
+            - 
+              Fn::Select: 
+                - "0"
+                - 
+                  Ref: "VpcAvailabilityZones"
+            - 
+              Fn::Select: 
+                - "0"
+                - 
+                  Fn::GetAZs: 
+                    Ref: "AWS::Region"
+      Metadata: 
+        AWS::CloudFormation::Designer: 
+          id: "61c05d7e-dc62-44a3-bb9b-76bee4756f8d"
+    PubSubnetAz2: 
+      Condition: "CreateVpcResources"
+      Type: "AWS::EC2::Subnet"
+      Properties: 
+        VpcId: 
+          Ref: "Vpc"
+        CidrBlock: 
+          Fn::FindInMap: 
+            - "VpcCidrs"
+            - 
+              Ref: "AWS::Region"
+            - "pubsubnet2"
+        AvailabilityZone: 
+          Fn::If: 
+            - "UseSpecifiedVpcAvailabilityZones"
+            - 
+              Fn::Select: 
+                - "1"
+                - 
+                  Ref: "VpcAvailabilityZones"
+            - 
+              Fn::Select: 
+                - "1"
+                - 
+                  Fn::GetAZs: 
+                    Ref: "AWS::Region"
+      Metadata: 
+        AWS::CloudFormation::Designer: 
+          id: "5c8f746c-918a-4e68-8211-d54ddb77afe0"
+    PrvSubnetAz1: 
+      Condition: "CreateVpcResources"
+      Type: "AWS::EC2::Subnet"
+      Properties: 
+        VpcId: 
+          Ref: "Vpc"
+        CidrBlock: 
+          Fn::FindInMap: 
+            - "VpcCidrs"
+            - 
+              Ref: "AWS::Region"
+            - "prvsubnet1"
+        AvailabilityZone: 
+          Fn::If: 
+            - "UseSpecifiedVpcAvailabilityZones"
+            - 
+              Fn::Select: 
+                - "0"
+                - 
+                  Ref: "VpcAvailabilityZones"
+            - 
+              Fn::Select: 
+                - "0"
+                - 
+                  Fn::GetAZs: 
+                    Ref: "AWS::Region"
+      Metadata: 
+        AWS::CloudFormation::Designer: 
+          id: "29908788-1e40-4f66-b67c-657f7156d025"
+    PrvSubnetAz2: 
+      Condition: "CreateVpcResources"
+      Type: "AWS::EC2::Subnet"
+      Properties: 
+        VpcId: 
+          Ref: "Vpc"
+        CidrBlock: 
+          Fn::FindInMap: 
+            - "VpcCidrs"
+            - 
+              Ref: "AWS::Region"
+            - "prvsubnet2"
+        AvailabilityZone: 
+          Fn::If: 
+            - "UseSpecifiedVpcAvailabilityZones"
+            - 
+              Fn::Select: 
+                - "1"
+                - 
+                  Ref: "VpcAvailabilityZones"
+            - 
+              Fn::Select: 
+                - "1"
+                - 
+                  Fn::GetAZs: 
+                    Ref: "AWS::Region"
+      Metadata: 
+        AWS::CloudFormation::Designer: 
+          id: "6e4cf3fb-5662-4bbe-91c3-ef4049370a38"
+    InternetGateway: 
+      Condition: "CreateVpcResources"
+      Type: "AWS::EC2::InternetGateway"
+      Metadata: 
+        AWS::CloudFormation::Designer: 
+          id: "5accb84f-ecdb-465a-8dc0-d8437abb696a"
+    AttachGateway: 
+      Condition: "CreateVpcResources"
+      Type: "AWS::EC2::VPCGatewayAttachment"
+      Properties: 
+        VpcId: 
+          Ref: "Vpc"
+        InternetGatewayId: 
+          Ref: "InternetGateway"
+      Metadata: 
+        AWS::CloudFormation::Designer: 
+          id: "32aa66ee-d2a4-4a2d-b411-a8a7d55a515d"
+    RouteViaIgw: 
+      Condition: "CreateVpcResources"
+      Type: "AWS::EC2::RouteTable"
+      Properties: 
+        VpcId: 
+          Ref: "Vpc"
+      Metadata: 
+        AWS::CloudFormation::Designer: 
+          id: "6c78ff1d-e74e-4d9c-b66d-e98c53722ea3"
+    PublicRouteViaIgw: 
+      Condition: "CreateVpcResources"
+      Type: "AWS::EC2::Route"
+      DependsOn: "AttachGateway"
+      Properties: 
+        RouteTableId: 
+          Ref: "RouteViaIgw"
+        DestinationCidrBlock: "0.0.0.0/0"
+        GatewayId: 
+          Ref: "InternetGateway"
+      Metadata: 
+        AWS::CloudFormation::Designer: 
+          id: "370bf67b-9733-46cc-a261-4c7fc9ce63d2"
+    PubSubnet1RouteTableAssociation: 
+      Condition: "CreateVpcResources"
+      Type: "AWS::EC2::SubnetRouteTableAssociation"
+      Properties: 
+        SubnetId: 
+          Ref: "PubSubnetAz1"
+        RouteTableId: 
+          Ref: "RouteViaIgw"
+      Metadata: 
+        AWS::CloudFormation::Designer: 
+          id: "3ab86611-92ea-45d6-89db-d7e09964c37c"
+    PubSubnet2RouteTableAssociation: 
+      Condition: "CreateVpcResources"
+      Type: "AWS::EC2::SubnetRouteTableAssociation"
+      Properties: 
+        SubnetId: 
+          Ref: "PubSubnetAz2"
+        RouteTableId: 
+          Ref: "RouteViaIgw"
+      Metadata: 
+        AWS::CloudFormation::Designer: 
+          id: "696ce439-4d7d-4ea5-b14d-3f0102a6aef4"
+    ElbSecurityGroup: 
+      Type: "AWS::EC2::SecurityGroup"
+      Properties: 
+        GroupDescription: "ELB Allowed Ports"
+        VpcId: 
+          Fn::If: 
+            - "CreateVpcResources"
+            - 
+              Ref: "Vpc"
+            - 
+              Ref: "VpcId"
+        SecurityGroupIngress: 
+          - 
+            IpProtocol: "tcp"
+            FromPort: 
+              Ref: "ElbHttpPort"
+            ToPort: 
+              Ref: "ElbHttpPort"
+            CidrIp: 
+              Ref: "SourceCidr"
+          - 
+            IpProtocol: "tcp"
+            FromPort: 
+              Ref: "ElbHttpsPort"
+            ToPort: 
+              Ref: "ElbHttpsPort"
+            CidrIp: 
+              Ref: "SourceCidr"
+      Metadata: 
+        AWS::CloudFormation::Designer: 
+          id: "3edbaa77-9fa7-4a89-b815-f74df94455ab"
+    EcsSecurityGroup: 
+      Type: "AWS::EC2::SecurityGroup"
+      Properties: 
+        GroupDescription: "ECS Allowed Ports"
+        VpcId: 
+          Fn::If: 
+            - "CreateVpcResources"
+            - 
+              Ref: "Vpc"
+            - 
+              Ref: "VpcId"
+        SecurityGroupIngress: 
+          Fn::If: 
+            - "CreateELB"
+            - 
+              - 
+                IpProtocol: "tcp"
+                FromPort: 
+                  Ref: "EcsHttpPort"
+                ToPort: 
+                  Ref: "EcsHttpPort"
+                CidrIp: 
+                  Ref: "SourceCidr"
+              - 
+                IpProtocol: "tcp"
+                FromPort: 
+                  Ref: "EcsHttpsPort"
+                ToPort: 
+                  Ref: "EcsHttpsPort"
+                CidrIp: 
+                  Ref: "SourceCidr"
+              - 
+                IpProtocol: "tcp"
+                FromPort: "22"
+                ToPort: "22"
+                CidrIp: 
+                  Ref: "SourceCidr"
+              - 
+                IpProtocol: "tcp"
+                FromPort: "1"
+                ToPort: "65535"
+                SourceSecurityGroupId: 
+                  Ref: "ElbSecurityGroup"
+            - 
+              - 
+                IpProtocol: "tcp"
+                FromPort: 
+                  Ref: "EcsHttpPort"
+                ToPort: 
+                  Ref: "EcsHttpPort"
+                CidrIp: 
+                  Ref: "SourceCidr"
+              - 
+                IpProtocol: "tcp"
+                FromPort: 
+                  Ref: "EcsHttpsPort"
+                ToPort: 
+                  Ref: "EcsHttpsPort"
+                CidrIp: 
+                  Ref: "SourceCidr"
+              - 
+                IpProtocol: "tcp"
+                FromPort: "22"
+                ToPort: "22"
+                CidrIp: 
+                  Ref: "SourceCidr"
+      Metadata: 
+        AWS::CloudFormation::Designer: 
+          id: "11e9b77e-12a2-47c3-b18e-34cf6fb81e75"
+    EcsElasticLoadBalancer: 
+      Condition: "CreateELBForNewVpc"
+      Type: "AWS::ElasticLoadBalancing::LoadBalancer"
+      Properties: 
+        SecurityGroups: 
+          - 
+            Ref: "ElbSecurityGroup"
+        Subnets: 
+          - 
+            Ref: "PubSubnetAz1"
+          - 
+            Ref: "PubSubnetAz2"
+        CrossZone: "true"
+        Listeners: 
+          - 
+            LoadBalancerPort: 
+              Ref: "ElbHttpPort"
+            InstancePort: 
+              Ref: "EcsHttpPort"
+            Protocol: "HTTP"
+          - 
+            LoadBalancerPort: 
+              Ref: "ElbHttpsPort"
+            InstancePort: 
+              Ref: "EcsHttpsPort"
+            InstanceProtocol: 
+              Fn::If: 
+                - "TerminateSSLOnHosts"
+                - "TCP"
+                - "HTTPS"
+            Protocol: 
+              Fn::If: 
+                - "TerminateSSLOnHosts"
+                - "TCP"
+                - "HTTPS"
+            SSLCertificateId: 
+              Fn::If: 
+                - "TerminateSSLOnHosts"
+                - ""
+                - 
+                  Ref: "ElbSSLCertificateId"
+        HealthCheck: 
+          Target: 
+            Fn::If: 
+              - "TerminateSSLOnHosts"
+              - "TCP:443"
+              - "HTTPS:443/"
+          HealthyThreshold: "5"
+          UnhealthyThreshold: "2"
+          Interval: "30"
+          Timeout: "5"
+      Metadata: 
+        AWS::CloudFormation::Designer: 
+          id: "5a14b8d6-e3be-4699-86db-3aa7ecc0e27d"
+    EcsElasticLoadBalancerExistingVpc: 
+      Condition: "CreateELBForExistingVpc"
+      Type: "AWS::ElasticLoadBalancing::LoadBalancer"
+      Properties: 
+        SecurityGroups: 
+          - 
+            Ref: "ElbSecurityGroup"
+        Subnets: 
+          Ref: "ECSSubnetIds"
+        CrossZone: "true"
+        Listeners: 
+          - 
+            LoadBalancerPort: 
+              Ref: "ElbHttpPort"
+            InstancePort: 
+              Ref: "EcsHttpPort"
+            Protocol: "HTTP"
+          - 
+            LoadBalancerPort: 
+              Ref: "ElbHttpsPort"
+            InstancePort: 
+              Ref: "EcsHttpsPort"
+            InstanceProtocol: 
+              Fn::If: 
+                - "TerminateSSLOnHosts"
+                - "TCP"
+                - "HTTPS"
+            Protocol: 
+              Fn::If: 
+                - "TerminateSSLOnHosts"
+                - "TCP"
+                - "HTTPS"
+            SSLCertificateId: 
+              Fn::If: 
+                - "TerminateSSLOnHosts"
+                - ""
+                - 
+                  Ref: "ElbSSLCertificateId"
+        HealthCheck: 
+          Target: 
+            Fn::If: 
+              - "TerminateSSLOnHosts"
+              - "TCP:443"
+              - "HTTPS:443/"
+          HealthyThreshold: "2"
+          UnhealthyThreshold: "10"
+          Interval: "30"
+          Timeout: "5"
+      Metadata: 
+        AWS::CloudFormation::Designer: 
+          id: "489c5cf7-1c12-46b0-a4a2-99756235aa52"
+    EcsInstanceLc: 
+      Condition: "CreateEC2LCWithKeyPair"
+      Type: "AWS::AutoScaling::LaunchConfiguration"
+      Properties: 
+        InstanceMonitoring: false
+        ImageId: 
+          Ref: "EcsAmiId"
+        InstanceType: 
+          Ref: "EcsInstanceType"
+        AssociatePublicIpAddress: true
+        IamInstanceProfile: 
+          Ref: "IamRoleInstanceProfile"
+        KeyName: 
+          Ref: "KeyName"
+        SecurityGroups: 
+          - 
+            Ref: "EcsSecurityGroup"
+        UserData: 
+          Fn::If: 
+            - "SetEndpointToECSAgent"
+            - 
+              Fn::Base64: 
+                Fn::Join: 
+                  - ""
+                  - 
+                    - "#!/bin/bash\n"
+                    - "echo ECS_CLUSTER="
+                    - 
+                      Ref: "EcsClusterName"
+                    - " >> /etc/ecs/ecs.config"
+                    - "\necho ECS_BACKEND_HOST="
+                    - 
+                      Ref: "EcsEndpoint"
+                    - " >> /etc/ecs/ecs.config"
+            - 
+              Fn::Base64: 
+                Fn::Join: 
+                  - ""
+                  - 
+                    - "#!/bin/bash\n"
+                    - "echo ECS_CLUSTER="
+                    - 
+                      Ref: "EcsClusterName"
+                    - " >> /etc/ecs/ecs.config"
+      Metadata: 
+        AWS::CloudFormation::Designer: 
+          id: "45f62786-7ee6-4929-aae2-bb843cdfb460"
+    EcsInstanceLcWithoutKeyPair: 
+      Condition: "CreateEC2LCWithoutKeyPair"
+      Type: "AWS::AutoScaling::LaunchConfiguration"
+      Properties: 
+        InstanceMonitoring: false
+        ImageId: 
+          Ref: "EcsAmiId"
+        InstanceType: 
+          Ref: "EcsInstanceType"
+        AssociatePublicIpAddress: true
+        IamInstanceProfile: 
+          Ref: "IamRoleInstanceProfile"
+        SecurityGroups: 
+          - 
+            Ref: "EcsSecurityGroup"
+        UserData: 
+          Fn::If: 
+            - "SetEndpointToECSAgent"
+            - 
+              Fn::Base64: 
+                Fn::Join: 
+                  - ""
+                  - 
+                    - "#!/bin/bash\n"
+                    - "echo ECS_CLUSTER="
+                    - 
+                      Ref: "EcsClusterName"
+                    - " >> /etc/ecs/ecs.config"
+                    - "\necho ECS_BACKEND_HOST="
+                    - 
+                      Ref: "EcsEndpoint"
+                    - " >> /etc/ecs/ecs.config"
+            - 
+              Fn::Base64: 
+                Fn::Join: 
+                  - ""
+                  - 
+                    - "#!/bin/bash\n"
+                    - "echo ECS_CLUSTER="
+                    - 
+                      Ref: "EcsClusterName"
+                    - " >> /etc/ecs/ecs.config"
+      Metadata: 
+        AWS::CloudFormation::Designer: 
+          id: "b0ae21b6-7459-462b-a810-5dc3696f584c"
+    EcsInstanceAsg: 
+      Type: "AWS::AutoScaling::AutoScalingGroup"
+      Properties: 
+        VPCZoneIdentifier: 
+          Fn::If: 
+            - "CreateVpcResources"
+            - 
+              - 
+                Fn::Join: 
+                  - ","
+                  - 
+                    - 
+                      Ref: "PubSubnetAz1"
+                    - 
+                      Ref: "PubSubnetAz2"
+            - 
+              Ref: "ECSSubnetIds"
+        LaunchConfigurationName: 
+          Fn::If: 
+            - "CreateEC2LCWithKeyPair"
+            - 
+              Ref: "EcsInstanceLc"
+            - 
+              Ref: "EcsInstanceLcWithoutKeyPair"
+        MinSize: "1"
+        MaxSize: 
+          Ref: "AsgMaxSize"
+        DesiredCapacity: 
+          Ref: "AsgMaxSize"
+        Tags: 
+          - 
+            Key: "Name"
+            Value: 
+              Fn::Join: 
+                - ""
+                - 
+                  - "ECS Instance - "
+                  - 
+                    Ref: "AWS::StackName"
+            PropagateAtLaunch: "true"
+      Metadata: 
+        AWS::CloudFormation::Designer: 
+          id: "bbff2aca-61b6-4536-a994-4f76cf7b3486"
+    DrupalDbSecurityGroup: 
+      Type: "AWS::EC2::SecurityGroup"
+      Properties: 
+        GroupDescription: "Open database for access"
+        VpcId: 
+          Fn::If: 
+            - "CreateVpcResources"
+            - 
+              Ref: "Vpc"
+            - 
+              Ref: "VpcId"
+        SecurityGroupIngress: 
+          - 
+            IpProtocol: "tcp"
+            FromPort: "3306"
+            ToPort: "3306"
+            SourceSecurityGroupId: 
+              Ref: "EcsSecurityGroup"
+      Metadata: 
+        AWS::CloudFormation::Designer: 
+          id: "d777ebc2-1fa0-46d5-a67d-866c365c9270"
+    DrupalDbInstance: 
+      Type: "AWS::RDS::DBInstance"
+      Properties: 
+        DBSubnetGroupName: 
+          Ref: "DbSubnetGroup"
+        Engine: 
+          Ref: "DrupalDBEngine"
+        DBName: 
+          Ref: "DrupalDBName"
+        MultiAZ: 
+          Ref: "DrupalMultiAZDatabase"
+        MasterUsername: 
+          Ref: "DrupalDBUser"
+        MasterUserPassword: 
+          Ref: "DrupalDBPassword"
+        DBInstanceClass: 
+          Ref: "DrupalDBInstanceClass"
+        AllocatedStorage: 
+          Ref: "DrupalDBAllocatedStorage"
+        VPCSecurityGroups: 
+          - 
+            Ref: "DrupalDbSecurityGroup"
+      Metadata: 
+        AWS::CloudFormation::Designer: 
+          id: "97750b54-3b05-4dd9-b05a-6303bb3ca158"
+    DbSubnetGroup: 
+      Type: "AWS::RDS::DBSubnetGroup"
+      Properties: 
+        DBSubnetGroupDescription: "RDS DB subnet group"
+        SubnetIds: 
+          - 
+            Ref: "PrvSubnetAz1"
+          - 
+            Ref: "PrvSubnetAz2"
+      Metadata: 
+        AWS::CloudFormation::Designer: 
+          id: "2f4913c4-a2a3-4f68-96ea-82af38484970"
+      DependsOn: 
+        - "PrvSubnetAz1"
+        - "PrvSubnetAz2"
+    EcsRedirectTaskDef: 
+      Type: "AWS::ECS::TaskDefinition"
+      Properties: 
+        ContainerDefinitions: 
+          - 
+            VolumesFrom: []
+            Memory: 10
+            PortMappings: 
+              - 
+                HostPort: 80
+                ContainerPort: 80
+                Protocol: "tcp"
+            Essential: true
+            MountPoints: []
+            Name: "docker-ssl-redirect"
+            Image: "plainlychrist/docker-ssl-redirect:unstable"
+        Volumes: []
+    EcsSiteTaskDef: 
+      Type: "AWS::ECS::TaskDefinition"
+      Properties: 
+        ContainerDefinitions: 
+          - 
+            VolumesFrom: []
+            Memory: 300
+            PortMappings: 
+              - 
+                HostPort: 443
+                ContainerPort: 443
+                Protocol: "tcp"
+            Essential: true
+            MountPoints: []
+            Name: "site-web"
+            Environment: 
+              - 
+                Name: "MYSQL_HOST"
+                Value: 
+                  Fn::GetAtt: 
+                    - "DrupalDbInstance"
+                    - "Endpoint.Address"
+              - 
+                Name: "MYSQL_PORT"
+                Value: 
+                  Fn::GetAtt: 
+                    - "DrupalDbInstance"
+                    - "Endpoint.Port"
+              - 
+                Name: "MYSQL_DATABASE"
+                Value: 
+                  Ref: "DrupalDBName"
+              - 
+                Name: "MYSQL_PASSWORD"
+                Value: 
+                  Ref: "DrupalDBPassword"
+              - 
+                Name: "MYSQL_USER"
+                Value: 
+                  Ref: "DrupalDBUser"
+              - 
+                Name: "WEB_ADMIN_PASSWORD"
+                Value: 
+                  Ref: "WebAdminPassword"
+            Image: "plainlychrist/site-web:unstable"
+            Command: 
+              - "--trust-this-ec2-host"
+              - "--use-mysql"
+        Volumes: []
+      Metadata: 
+        AWS::CloudFormation::Designer: 
+          id: "5c4c740e-ca23-4749-bed6-3aae17f1189c"
+    EcsRedirectService: 
+      Type: "AWS::ECS::Service"
+      Properties: 
+        DesiredCount:
+          Ref: "AsgMaxSize" # We want as many HTTP->HTTPS redirectors as we have Drupal web sites (we only need a few, but these are very low resources)
+        TaskDefinition: 
+          Ref: "EcsRedirectTaskDef"
+      DependsOn: 
+        - "EcsInstanceAsg"
+    EcsSiteService: 
+      Type: "AWS::ECS::Service"
+      Properties: 
+        DesiredCount:
+          Ref: "AsgMaxSize" # We want as many Drupal sites as the Autoscaling size
+        TaskDefinition: 
+          Ref: "EcsSiteTaskDef"
+      Metadata: 
+        AWS::CloudFormation::Designer: 
+          id: "31cb3828-3fdf-41a7-b0c5-301840e3a717"
+      DependsOn: 
+        - "EcsInstanceAsg"
+        - "DrupalDbInstance"
+  Outputs: 
+    EcsInstanceAsgName: 
+      Description: "Auto Scaling Group Name for ECS Instances"
+      Value: 
+        Ref: "EcsInstanceAsg"
+    EcsElbName: 
+      Description: "Load Balancer for ECS Service"
+      Value: 
+        Fn::If: 
+          - "CreateELB"
+          - 
+            Fn::If: 
+              - "CreateELBForNewVpc"
+              - 
+                Ref: "EcsElasticLoadBalancer"
+              - 
+                Ref: "EcsElasticLoadBalancerExistingVpc"
+          - ""
+  Metadata: 
+    AWS::CloudFormation::Designer: 
+      5accb84f-ecdb-465a-8dc0-d8437abb696a: 
+        size: 
+          width: 60
+          height: 60
+        position: 
+          x: 50
+          y: 420
+        z: 1
+        embeds: []
+      30e0d2a4-e6b5-4ff0-a20b-272e5a4d1ad4: 
+        size: 
+          width: 1020
+          height: 490
+        position: 
+          x: 130
+          y: 110
+        z: 1
+        embeds: 
+          - "3edbaa77-9fa7-4a89-b815-f74df94455ab"
+          - "11e9b77e-12a2-47c3-b18e-34cf6fb81e75"
+          - "d777ebc2-1fa0-46d5-a67d-866c365c9270"
+          - "6c78ff1d-e74e-4d9c-b66d-e98c53722ea3"
+          - "6e4cf3fb-5662-4bbe-91c3-ef4049370a38"
+          - "29908788-1e40-4f66-b67c-657f7156d025"
+          - "5c8f746c-918a-4e68-8211-d54ddb77afe0"
+          - "61c05d7e-dc62-44a3-bb9b-76bee4756f8d"
+      3edbaa77-9fa7-4a89-b815-f74df94455ab: 
+        size: 
+          width: 60
+          height: 60
+        position: 
+          x: 370
+          y: 470
+        z: 2
+        parent: "30e0d2a4-e6b5-4ff0-a20b-272e5a4d1ad4"
+        embeds: []
+      489c5cf7-1c12-46b0-a4a2-99756235aa52: 
+        size: 
+          width: 60
+          height: 60
+        position: 
+          x: 180
+          y: 660
+        z: 1
+        embeds: []
+        ismemberof: 
+          - "3edbaa77-9fa7-4a89-b815-f74df94455ab"
+      11e9b77e-12a2-47c3-b18e-34cf6fb81e75: 
+        size: 
+          width: 60
+          height: 60
+        position: 
+          x: 490
+          y: 470
+        z: 2
+        parent: "30e0d2a4-e6b5-4ff0-a20b-272e5a4d1ad4"
+        embeds: []
+        isrelatedto: 
+          - "3edbaa77-9fa7-4a89-b815-f74df94455ab"
+      b0ae21b6-7459-462b-a810-5dc3696f584c: 
+        size: 
+          width: 60
+          height: 60
+        position: 
+          x: 290
+          y: 610
+        z: 1
+        embeds: []
+        ismemberof: 
+          - "11e9b77e-12a2-47c3-b18e-34cf6fb81e75"
+      45f62786-7ee6-4929-aae2-bb843cdfb460: 
+        size: 
+          width: 60
+          height: 60
+        position: 
+          x: 430
+          y: 610
+        z: 1
+        embeds: []
+        ismemberof: 
+          - "11e9b77e-12a2-47c3-b18e-34cf6fb81e75"
+      6c78ff1d-e74e-4d9c-b66d-e98c53722ea3: 
+        size: 
+          width: 510
+          height: 420
+        position: 
+          x: 270
+          y: 160
+        z: 2
+        parent: "30e0d2a4-e6b5-4ff0-a20b-272e5a4d1ad4"
+        embeds: 
+          - "370bf67b-9733-46cc-a261-4c7fc9ce63d2"
+      32aa66ee-d2a4-4a2d-b411-a8a7d55a515d: 
+        source: 
+          id: "5accb84f-ecdb-465a-8dc0-d8437abb696a"
+        target: 
+          id: "30e0d2a4-e6b5-4ff0-a20b-272e5a4d1ad4"
+        z: 1
+      370bf67b-9733-46cc-a261-4c7fc9ce63d2: 
+        size: 
+          width: 60
+          height: 60
+        position: 
+          x: 450
+          y: 250
+        z: 3
+        parent: "6c78ff1d-e74e-4d9c-b66d-e98c53722ea3"
+        embeds: []
+        references: 
+          - "5accb84f-ecdb-465a-8dc0-d8437abb696a"
+        dependson: 
+          - "32aa66ee-d2a4-4a2d-b411-a8a7d55a515d"
+      5c8f746c-918a-4e68-8211-d54ddb77afe0: 
+        size: 
+          width: 150
+          height: 150
+        position: 
+          x: 670
+          y: 380
+        z: 2
+        parent: "30e0d2a4-e6b5-4ff0-a20b-272e5a4d1ad4"
+        embeds: []
+      696ce439-4d7d-4ea5-b14d-3f0102a6aef4: 
+        source: 
+          id: "6c78ff1d-e74e-4d9c-b66d-e98c53722ea3"
+        target: 
+          id: "5c8f746c-918a-4e68-8211-d54ddb77afe0"
+        z: 2
+      61c05d7e-dc62-44a3-bb9b-76bee4756f8d: 
+        size: 
+          width: 150
+          height: 150
+        position: 
+          x: 670
+          y: 170
+        z: 2
+        parent: "30e0d2a4-e6b5-4ff0-a20b-272e5a4d1ad4"
+        embeds: []
+      bbff2aca-61b6-4536-a994-4f76cf7b3486: 
+        size: 
+          width: 60
+          height: 60
+        position: 
+          x: 550
+          y: 710
+        z: 1
+        embeds: []
+        isassociatedwith: 
+          - "45f62786-7ee6-4929-aae2-bb843cdfb460"
+        isrelatedto: 
+          - "61c05d7e-dc62-44a3-bb9b-76bee4756f8d"
+          - "5c8f746c-918a-4e68-8211-d54ddb77afe0"
+          - "b0ae21b6-7459-462b-a810-5dc3696f584c"
+      5a14b8d6-e3be-4699-86db-3aa7ecc0e27d: 
+        size: 
+          width: 60
+          height: 60
+        position: 
+          x: 660
+          y: 660
+        z: 1
+        embeds: []
+        isconnectedto: 
+          - "61c05d7e-dc62-44a3-bb9b-76bee4756f8d"
+          - "5c8f746c-918a-4e68-8211-d54ddb77afe0"
+        ismemberof: 
+          - "3edbaa77-9fa7-4a89-b815-f74df94455ab"
+      3ab86611-92ea-45d6-89db-d7e09964c37c: 
+        source: 
+          id: "6c78ff1d-e74e-4d9c-b66d-e98c53722ea3"
+        target: 
+          id: "61c05d7e-dc62-44a3-bb9b-76bee4756f8d"
+        z: 2
+      d777ebc2-1fa0-46d5-a67d-866c365c9270: 
+        size: 
+          width: 60
+          height: 60
+        position: 
+          x: 850
+          y: 490
+        z: 2
+        parent: "30e0d2a4-e6b5-4ff0-a20b-272e5a4d1ad4"
+        embeds: []
+        isrelatedto: 
+          - "11e9b77e-12a2-47c3-b18e-34cf6fb81e75"
+      97750b54-3b05-4dd9-b05a-6303bb3ca158: 
+        size: 
+          width: 60
+          height: 60
+        position: 
+          x: 1040
+          y: 660
+        z: 0
+        parent: "2f4913c4-a2a3-4f68-96ea-82af38484970"
+        embeds: []
+        ismemberof: 
+          - "d777ebc2-1fa0-46d5-a67d-866c365c9270"
+        isrelatedto: 
+          - "d777ebc2-1fa0-46d5-a67d-866c365c9270"
+      2f4913c4-a2a3-4f68-96ea-82af38484970: 
+        size: 
+          width: 150
+          height: 90
+        position: 
+          x: 1170
+          y: 410
+        z: 0
+        embeds: 
+          - "97750b54-3b05-4dd9-b05a-6303bb3ca158"
+        isconnectedto: 
+          - "29908788-1e40-4f66-b67c-657f7156d025"
+          - "6e4cf3fb-5662-4bbe-91c3-ef4049370a38"
+        dependson: 
+          - "29908788-1e40-4f66-b67c-657f7156d025"
+          - "6e4cf3fb-5662-4bbe-91c3-ef4049370a38"
+      6e4cf3fb-5662-4bbe-91c3-ef4049370a38: 
+        size: 
+          width: 150
+          height: 150
+        position: 
+          x: 920
+          y: 380
+        z: 2
+        parent: "30e0d2a4-e6b5-4ff0-a20b-272e5a4d1ad4"
+        embeds: []
+      29908788-1e40-4f66-b67c-657f7156d025: 
+        size: 
+          width: 150
+          height: 150
+        position: 
+          x: 920
+          y: 170
+        z: 2
+        parent: "30e0d2a4-e6b5-4ff0-a20b-272e5a4d1ad4"
+        embeds: []
+      5c4c740e-ca23-4749-bed6-3aae17f1189c: 
+        size: 
+          width: 60
+          height: 60
+        position: 
+          x: 330
+          y: 780
+        z: 0
+        embeds: []
+        isrelatedto: 
+          - "97750b54-3b05-4dd9-b05a-6303bb3ca158"
+      31cb3828-3fdf-41a7-b0c5-301840e3a717: 
+        size: 
+          width: 60
+          height: 60
+        position: 
+          x: 430
+          y: 780
+        z: 0
+        embeds: []
+        references: 
+          - "5c4c740e-ca23-4749-bed6-3aae17f1189c"
+        dependson: 
+          - "bbff2aca-61b6-4536-a994-4f76cf7b3486"
+          - "97750b54-3b05-4dd9-b05a-6303bb3ca158"
+
