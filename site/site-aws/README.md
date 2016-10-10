@@ -20,6 +20,17 @@ sudo yum install expect
 
 MYPWD=$(mkpasswd -s 0 -l 40)
 DRPWD=$(mkpasswd -s 0 -l 40)
-aws --profile site-dev cloudformation create-stack --parameters ParameterKey=AsgMaxSize,ParameterValue=2 ParameterKey=CreateElasticLoadBalancer,ParameterValue=true ParameterKey=DrupalDBAllocatedStorage,ParameterValue=5 ParameterKey=DrupalDBEngine,ParameterValue=MySQL ParameterKey=DrupalDBInstanceClass,ParameterValue=db.t2.micro ParameterKey=DrupalDBName,ParameterValue=drupal ParameterKey=DrupalDBPassword,ParameterValue="${MYPWD}" ParameterKey=WebAdminPassword,ParameterValue="${DRPWD}" ParameterKey=DrupalDBUser,ParameterValue=drupal ParameterKey=DrupalMultiAZDatabase,ParameterValue=false ParameterKey=EcsAmiId,ParameterValue=${ECS_AMI_ID} ParameterKey=EcsClusterName,ParameterValue=default ParameterKey=EcsInstanceType,ParameterValue=t2.micro ParameterKey=IamRoleInstanceProfile,ParameterValue=ecsInstanceRole ParameterKey=KeyName,ParameterValue=ecs-login ParameterKey=SourceCidr,ParameterValue=${MY_IP}/32 --stack-name plainlychrist-$RANDOM --template-body "$(cat cloudformation.yaml)"
+aws --profile site-dev cloudformation create-stack --parameters ParameterKey=AsgMaxSize,ParameterValue=2 ParameterKey=CreateElasticLoadBalancer,ParameterValue=true ParameterKey=DrupalDBAllocatedStorage,ParameterValue=5 ParameterKey=DrupalDBEngine,ParameterValue=MySQL ParameterKey=DrupalDBInstanceClass,ParameterValue=db.t2.micro ParameterKey=DrupalDBName,ParameterValue=drupal ParameterKey=DrupalDBPassword,ParameterValue="${MYPWD}" ParameterKey=WebAdminPassword,ParameterValue="${DRPWD}" ParameterKey=DrupalDBUser,ParameterValue=drupal ParameterKey=DrupalMultiAZDatabase,ParameterValue=false ParameterKey=EcsAmiId,ParameterValue=${ECS_AMI_ID} ParameterKey=EcsInstanceType,ParameterValue=t2.micro ParameterKey=IamRoleInstanceProfile,ParameterValue=ecsInstanceRole ParameterKey=KeyName,ParameterValue=ecs-login ParameterKey=SourceCidr,ParameterValue=${MY_IP}/32 --stack-name plainlychrist-$RANDOM --template-body "$(cat cloudformation.yaml)"
 echo "Drupal Password: $DRPWD"
 ```
+
+## Using a SSL certificate
+
+You'll need to register or create an SSL certificate in the AWS Certificate Manager.
+
+Add to the `--parameters` an ARN from the AWS Certificate Manager. Here is an example:
+
+```bash
+ParameterKey=ElbSSLCertificateId,ParameterValue=arn:aws:acm:us-west-2:123456789012:certificate/333af33a-3333-3cb3-333a-3a33b33a3333
+```
+ElbSSLCertificateId
