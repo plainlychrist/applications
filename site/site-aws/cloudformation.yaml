@@ -100,6 +100,15 @@
       MaxLength: "41"
       AllowedPattern: "[a-zA-Z0-9]*"
       ConstraintDescription: "must be between 8 and 41 characters, and contain only alphanumeric characters."
+    DrupalHashSalt:
+      NoEcho: "true"
+      Default: ""
+      Description: "The hash salt used in CSRF tokens, which may be base64 encoded (the only requirement is to use base64 characters). If not specified, the self-generated hash salts of each ECS container are used. A good way to generate one is: openssl rand -base64 64 | tr -d '\\n'"
+      Type: "String"
+      MinLength: "0"
+      MaxLength: "256"
+      AllowedPattern: "[a-zA-Z0-9+/]*=*"
+      ConstraintDescription: "must be Base64, or empty"
     WebAdminPassword:
       NoEcho: "true"
       Description: "Password for logging into Drupal as the first user (the root administrator)"
@@ -663,26 +672,25 @@
               Ref: "EcsHttpPort"
             Protocol: "HTTP"
           -
-            LoadBalancerPort:
-              Ref: "ElbHttpsPort"
-            InstancePort:
-              Ref: "EcsHttpsPort"
-            InstanceProtocol:
-              Fn::If:
-                - "TerminateSSLOnHosts"
-                - "TCP"
-                - "HTTPS"
-            Protocol:
-              Fn::If:
-                - "TerminateSSLOnHosts"
-                - "TCP"
-                - "HTTPS"
-            SSLCertificateId:
-              Fn::If:
-                - "TerminateSSLOnHosts"
-                - ""
-                -
-                  Ref: "ElbSSLCertificateId"
+            Fn::If:
+              - "TerminateSSLOnHosts"
+              -
+                LoadBalancerPort:
+                  Ref: "ElbHttpsPort"
+                InstancePort:
+                  Ref: "EcsHttpsPort"
+                InstanceProtocol: "TCP"
+                Protocol: "TCP"
+              -
+                LoadBalancerPort:
+                  Ref: "ElbHttpsPort"
+                InstancePort:
+                  Ref: "EcsHttpsPort"
+                InstanceProtocol: "HTTPS"
+                PolicyNames:
+                  - MyAppCookieStickinessPolicy
+                Protocol: "HTTPS"
+                SSLCertificateId: !Ref "ElbSSLCertificateId"
         HealthCheck:
           Target:
             Fn::If:
@@ -693,6 +701,12 @@
           UnhealthyThreshold: "2"
           Interval: "30"
           Timeout: "5"
+        Policies:
+          - PolicyName: MyAppCookieStickinessPolicy
+            PolicyType: AppCookieStickinessPolicyType
+            Attributes:
+              - Name: CookieName
+                Value: Drupal.visitor.lbloc # set in Drupal custom loadbalancing_cookie.module
       Metadata:
         AWS::CloudFormation::Designer:
           id: "5a14b8d6-e3be-4699-86db-3aa7ecc0e27d"
@@ -714,26 +728,25 @@
               Ref: "EcsHttpPort"
             Protocol: "HTTP"
           -
-            LoadBalancerPort:
-              Ref: "ElbHttpsPort"
-            InstancePort:
-              Ref: "EcsHttpsPort"
-            InstanceProtocol:
-              Fn::If:
-                - "TerminateSSLOnHosts"
-                - "TCP"
-                - "HTTPS"
-            Protocol:
-              Fn::If:
-                - "TerminateSSLOnHosts"
-                - "TCP"
-                - "HTTPS"
-            SSLCertificateId:
-              Fn::If:
-                - "TerminateSSLOnHosts"
-                - ""
-                -
-                  Ref: "ElbSSLCertificateId"
+            Fn::If:
+              - "TerminateSSLOnHosts"
+              -
+                LoadBalancerPort:
+                  Ref: "ElbHttpsPort"
+                InstancePort:
+                  Ref: "EcsHttpsPort"
+                InstanceProtocol: "TCP"
+                Protocol: "TCP"
+              -
+                LoadBalancerPort:
+                  Ref: "ElbHttpsPort"
+                InstancePort:
+                  Ref: "EcsHttpsPort"
+                InstanceProtocol: "HTTPS"
+                PolicyNames:
+                  - MyAppCookieStickinessPolicy
+                Protocol: "HTTPS"
+                SSLCertificateId: !Ref "ElbSSLCertificateId"
         HealthCheck:
           Target:
             Fn::If:
@@ -744,6 +757,12 @@
           UnhealthyThreshold: "10"
           Interval: "30"
           Timeout: "5"
+        Policies:
+          - PolicyName: MyAppCookieStickinessPolicy
+            PolicyType: AppCookieStickinessPolicyType
+            Attributes:
+              - Name: CookieName
+                Value: Drupal.visitor.lbloc # set in Drupal custom loadbalancing_cookie.module
       Metadata:
         AWS::CloudFormation::Designer:
           id: "489c5cf7-1c12-46b0-a4a2-99756235aa52"
@@ -1000,6 +1019,9 @@
                   Ref: "WebAdminPassword"
             Image: "plainlychrist/site-web:unstable"
             Command:
+              # hash salt
+              - "--hash-salt"
+              - !Ref DrupalHashSalt
               # allow https://ec2-.../
               - "--trust-this-ec2-host"
               # allow https://10.0.0.198/ from ELB Health Check
