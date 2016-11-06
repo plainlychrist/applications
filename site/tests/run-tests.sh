@@ -5,21 +5,33 @@
 
 if ! which py.test; then
   set -x
-  sudo yum install python27-pytest
+  sudo pip install pytest || exit 2
   set +x
+fi
+
+if ! python -c 'import bs4'; then
+  set -x
+  sudo pip install beautifulsoup4 || exit 2
 fi
 
 if ! which npm; then
   set -x
-  sudo yum install npm
+  if which yum; then
+    sudo yum install npm || exit 2
+  elif which apt-get; then
+    sudo apt-get install npm || exit 2
+  else
+    echo "FATAL: We don't know how to install npm. Please install npm yourself"
+    exit 2
+  fi
   set +x
 fi
 
-if ! which npm; then
+if [[ ! -e ~/node_modules/broken-link-checker/bin/blc ]]; then
   set -x
   pushd ~ && npm install broken-link-checker@0.6.5 && popd
   set +x
 fi
 
 # The testing is done here
-exec py.test --verbose
+exec py.test --verbose "$@"

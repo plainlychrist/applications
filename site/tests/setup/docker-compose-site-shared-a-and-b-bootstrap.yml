@@ -1,0 +1,59 @@
+version: '2'
+services:
+  db:
+    image: mysql:5.6 # mimics recommendations for AWS RDS
+    mem_limit: 128m
+    environment:
+      - MYSQL_ROOT_PASSWORD=test
+      - MYSQL_DATABASE=drupal
+      - MYSQL_USER=drupal
+      - MYSQL_PASSWORD=test
+    ports:
+      - "12306:3306"
+    command:
+      - mysqld
+      # options at `docker run --rm mysql:5.7 --verbose --help | less`
+      - '--skip-performance-schema'
+      # https://github.com/twitter/mysql/blob/master/support-files/my-small.cnf.sh
+      - '--key-buffer-size=16K'
+      - '--max-allowed-packet=1M'
+      - '--table-open-cache=4'
+      - '--sort-buffer-size=64K'
+      - '--read-buffer-size=256K'
+      - '--read-rnd-buffer-size=256K'
+      - '--net-buffer-length=2K'
+      - '--thread-stack=128K'
+  web_a:
+    image: plainlychrist/site-web:unstable
+    mem_limit: 172m
+    environment:
+      - MYSQL_DATABASE=drupal
+      - MYSQL_USER=drupal
+      - MYSQL_PASSWORD=test
+      - WEB_ADMIN_PASSWORD=test
+    command: ['--use-mysql', '--trust-host-pattern', '^localhost$$']
+    ports:
+      - "12443:443"
+    volumes:
+      - shared-drupal-files:/var/www/html/sites/default/files
+    depends_on:
+      - db
+  web_b:
+    image: plainlychrist/site-web:unstable
+    mem_limit: 172m
+    environment:
+      - MYSQL_DATABASE=drupal
+      - MYSQL_USER=drupal
+      - MYSQL_PASSWORD=test
+      - WEB_ADMIN_PASSWORD=test
+    command: ['--use-mysql', '--trust-host-pattern', '^localhost$$']
+    ports:
+      - "12543:443"
+    volumes:
+      - shared-drupal-files:/var/www/html/sites/default/files
+    depends_on:
+      - db
+volumes:
+  # when we have multiple hosts for Drupal, they need to share their sites/defaults/files/*
+  # so that the Drupal AdvAgg module (or builtin CSS/JS aggregation) files are shared
+  shared-drupal-files:
