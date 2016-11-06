@@ -1,7 +1,7 @@
 version: '2'
 services:
   db:
-    image: mysql:5.7
+    image: mysql:5.6 # mimics recommendations for AWS RDS
     environment:
       - MYSQL_ROOT_PASSWORD
       - MYSQL_DATABASE=drupal
