@@ -30,7 +30,10 @@ def test_strict_content_type(site_with_empty_bootstrap):
 def test_content_security_policy(site_with_empty_bootstrap):
     s = site_with_empty_bootstrap
     r = requests.get(s.url, verify=False)
-    assert r.headers['Content-Security-Policy'] == "script-src 'self'"
+    assert "default-src 'self';"                              in r.headers['Content-Security-Policy']
+    assert "script-src 'self' 'unsafe-inline' 'unsafe-eval';" in r.headers['Content-Security-Policy']
+    assert "style-src 'self' 'unsafe-inline';"                in r.headers['Content-Security-Policy']
+    assert "img-src 'self' data:;"                            in r.headers['Content-Security-Policy']
 
 def test_no_permitted_cross_domain_policies(site_with_empty_bootstrap):
     s = site_with_empty_bootstrap
