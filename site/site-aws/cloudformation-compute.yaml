@@ -1,0 +1,474 @@
+---
+  # vim: autoindent smarttab tabstop=2 shiftwidth=2 expandtab softtabstop=2 filetype=yaml
+  # vim: set syntax=yaml:
+  AWSTemplateFormatVersion: "2010-09-09"
+  Description: "AWS CloudFormation template to create computing resources for plainlychrist.org"
+  Parameters:
+    NetworkIdFromDatabaseId:
+      Description: "The 'ID1' in plainlychrist-database-ID1-ID2, which will be used to connect the compute stack to the network stack"
+      Type: "String"
+      MinLength: 1
+      MaxLength: 10
+      AllowedPattern: "[0-9]+"
+    DatabaseId:
+      Description: "The 'ID1-ID2' in plainlychrist-database-ID1-ID2, which will be used to connect the compute stack to the database stack"
+      Type: "String"
+      MinLength: 1
+      MaxLength: 10
+      AllowedPattern: "[0-9]+-[0-9]+"
+    ModificationTimestamp:
+      Description: "The modification date of the stack, in ISO-8601 format"
+      Type: "String"
+      MinLength: 21
+      MaxLength: 21
+      AllowedPattern: "[0-9]{8}T[0-9]{12}"
+      ConstraintDescription: "must be ISO 8601 format, like 20170128T072603428619"
+    DrupalHashSalt:
+      NoEcho: "true"
+      Description: "The hash salt used in CSRF tokens, which may be base64 encoded (the only requirement is to use base64 characters). If not specified, the self-generated hash salts of each ECS container are used. A good way to generate one is: openssl rand -base64 64 | tr -d '\\n'"
+      Type: "String"
+      MinLength: 80
+      MaxLength: 256
+      AllowedPattern: "[a-zA-Z0-9+/]*=*"
+      ConstraintDescription: "must be Base64, or empty"
+    DrupalDBUser:
+      Default: "drupal"
+      Description: "Username for MySQL database access by Drupal"
+      Type: "String"
+      MinLength: "1"
+      MaxLength: "16"
+      AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*"
+      ConstraintDescription: "must begin with a letter and contain only alphanumeric characters."
+    DrupalDBPassword:
+      NoEcho: "true"
+      Description: "Password for MySQL database access by Drupal"
+      Type: "String"
+      MinLength: "8"
+      MaxLength: "41"
+      AllowedPattern: "[a-zA-Z0-9]*"
+      ConstraintDescription: "must be between 8 and 41 characters, and contain only alphanumeric characters."
+    WebAdminPassword:
+      NoEcho: "true"
+      Description: "Password for logging into Drupal as the first user (the root administrator)"
+      Type: "String"
+      MinLength: "8"
+      MaxLength: "41"
+      AllowedPattern: "[a-zA-Z0-9]*"
+      ConstraintDescription: "must be between 8 and 41 characters, and contain only alphanumeric characters."
+    EcsAmiId:
+      Type: "String"
+      Description: "ECS AMI Id"
+      Default: "ami-8e7bc4ee"
+    EcsInstanceType:
+      Type: "String"
+      Description: "ECS EC2 instance type"
+      Default: "t2.micro"
+      AllowedValues:
+        - "t2.micro"
+        - "t2.small"
+        - "t2.medium"
+        - "t2.large"
+        - "m4.large"
+        - "m4.xlarge"
+        - "m4.2xlarge"
+        - "m4.4xlarge"
+        - "m4.10xlarge"
+        - "m3.medium"
+        - "m3.large"
+        - "m3.xlarge"
+        - "m3.2xlarge"
+        - "c4.large"
+        - "c4.xlarge"
+        - "c4.2xlarge"
+        - "c4.4xlarge"
+        - "c4.8xlarge"
+        - "c3.large"
+        - "c3.xlarge"
+        - "c3.2xlarge"
+        - "c3.4xlarge"
+        - "c3.8xlarge"
+        - "r3.large"
+        - "r3.xlarge"
+        - "r3.2xlarge"
+        - "r3.4xlarge"
+        - "r3.8xlarge"
+        - "i2.xlarge"
+        - "i2.2xlarge"
+        - "i2.4xlarge"
+        - "i2.8xlarge"
+      ConstraintDescription: "must be a valid EC2 instance type."
+    KeyName:
+      Type: "String"
+      Description: "Optional - Name of an existing EC2 KeyPair to enable SSH access to the ECS instances"
+      Default: "ecs-login"
+    AsgMaxSize:
+      Type: "Number"
+      Description: "Maximum size and initial Desired Capacity of ECS Auto Scaling Group"
+      Default: "1"
+    IamRoleInstanceProfile:
+      Type: "String"
+      Description: "Name or the Amazon Resource Name (ARN) of the instance profile associated with the IAM role for the instance"
+      Default: "ecsInstanceRole"
+  Conditions:
+    CreateEC2LCWithKeyPair:
+      Fn::Not:
+        -
+          Fn::Equals:
+            -
+              Ref: "KeyName"
+            - ""
+    CreateEC2LCWithoutKeyPair:
+      Fn::Equals:
+        -
+          Ref: "KeyName"
+        - ""
+  Resources:
+    EcsCluster:
+      Type: "AWS::ECS::Cluster"
+      Properties:
+        ClusterName: !Ref "AWS::StackName"
+      Metadata:
+        # adapted from http://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/quickref-efs.html#quickref-efs-example-1.yaml
+        # This metadata can be attached to any CloudFormation resource; it is referenced elsewhere in this CloudFormation yaml file
+        AWS::CloudFormation::Init:
+          configSets:
+            PreDockerConfig:
+            - setupPreDocker
+            PostDockerConfig:
+            - setupPostDocker
+            - finishPostDocker
+          setupPreDocker:
+            packages:
+              yum:
+                nfs-utils: [] # NFS v4 client
+                jq: [] # JSON parser, suitable for https://aws.amazon.com/blogs/compute/using-amazon-efs-to-persist-data-from-amazon-ecs-containers/
+              python:
+                awscli: [] # 'aws' commands
+            commands:
+              01_createdir:
+                command: !Sub "mkdir -p /mnt/site-shared-drupal-files"
+              02_mount:
+                # http://docs.aws.amazon.com/efs/latest/ug/gs-step-three-connect-to-ec2-instance.html
+                command:
+                  "Fn::Sub":
+                    - |
+                      grep /mnt/site-shared-drupal-files /etc/mtab || mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 $(curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone).${DrupalFilesFileSystem}.efs.${AWS::Region}.amazonaws.com:/ /mnt/site-shared-drupal-files
+                    -
+                      DrupalFilesFileSystem:
+                        "Fn::ImportValue": !Join [ "", [ "plainlychrist-database-", !Ref "DatabaseId", "-DrupalFilesFileSystem" ] ]
+
+              03_fstab:
+                # http://docs.aws.amazon.com/efs/latest/ug/mount-fs-auto-mount-onreboot.html
+                command:
+                  "Fn::Sub":
+                    - |
+                      grep /mnt/site-shared-drupal-files /etc/fstab || echo "$(curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone).${DrupalFilesFileSystem}.efs.${AWS::Region}.amazonaws.com:/ /mnt/site-shared-drupal-files nfs4 nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 0 0" >> /etc/fstab
+                    -
+                      DrupalFilesFileSystem:
+                        "Fn::ImportValue": !Join [ "", [ "plainlychrist-database-", !Ref "DatabaseId", "-DrupalFilesFileSystem" ] ]
+          setupPostDocker:
+            files:
+              "/home/ec2-user/post_nfsstat":
+                content: !Sub |
+                  #!/bin/bash
+
+                  export PATH="/usr/local/bin:$PATH" # /usr/local/bin/aws
+                  INPUT="$(cat)"
+                  CW_JSON_OPEN='{ "Namespace": "EFS", "MetricData": [ '
+                  CW_JSON_CLOSE=' ] }'
+                  CW_JSON_METRIC=''
+                  METRIC_COUNTER=0
+
+                  for COL in 1 2 3 4 5 6; do
+
+                   COUNTER=0
+                   METRIC_FIELD=$COL
+                   DATA_FIELD=$(($COL+($COL-1)))
+
+                   while read line; do
+                     if [[ COUNTER -gt 0 ]]; then
+
+                       LINE=`echo $line | tr -s ' ' `
+                       AWS_COMMAND="aws cloudwatch put-metric-data --region ${AWS::Region}"
+                       MOD=$(( $COUNTER % 2))
+
+                       if [ $MOD -eq 1 ]; then
+                         METRIC_NAME=`echo $LINE | cut -d ' ' -f $METRIC_FIELD`
+                       else
+                         METRIC_VALUE=`echo $LINE | cut -d ' ' -f $DATA_FIELD`
+                       fi
+
+                       if [[ -n "$METRIC_NAME" && -n "$METRIC_VALUE" ]]; then
+                         INSTANCE_ID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+                         CW_JSON_METRIC="$CW_JSON_METRIC { \"MetricName\": \"$METRIC_NAME\", \"Dimensions\": [{\"Name\": \"InstanceId\", \"Value\": \"$INSTANCE_ID\"} ], \"Value\": $METRIC_VALUE },"
+                         unset METRIC_NAME
+                         unset METRIC_VALUE
+
+                         METRIC_COUNTER=$((METRIC_COUNTER+1))
+                         if [ $METRIC_COUNTER -eq 20 ]; then
+                           # 20 is max metric collection size, so we have to submit here
+                           aws cloudwatch put-metric-data --region ${AWS::Region} --cli-input-json "`echo $CW_JSON_OPEN ${!CW_JSON_METRIC%?} $CW_JSON_CLOSE`"
+
+                           # reset
+                           METRIC_COUNTER=0
+                           CW_JSON_METRIC=''
+                         fi
+                       fi
+
+
+
+                       COUNTER=$((COUNTER+1))
+                     fi
+
+                     if [[ "$line" == "Client nfs v4:" ]]; then
+                       # the next line is the good stuff
+                       COUNTER=$((COUNTER+1))
+                     fi
+                   done <<< "$INPUT"
+                  done
+
+                  # submit whatever is left
+                  aws cloudwatch put-metric-data --region ${AWS::Region} --cli-input-json "`echo $CW_JSON_OPEN ${!CW_JSON_METRIC%?} $CW_JSON_CLOSE`"
+                mode: '000755'
+                owner: ec2-user
+                group: ec2-user
+              "/home/ec2-user/crontab":
+                content: "* * * * * /usr/sbin/nfsstat | /home/ec2-user/post_nfsstat >> /tmp/post_nfsstat.log 2>&1\n"
+                owner: ec2-user
+                group: ec2-user
+          finishPostDocker:
+            commands:
+              01_permissions:
+                command: !Sub "chown ec2-user:ec2-user /mnt/site-shared-drupal-files"
+              02_cron:
+                command: !Sub "crontab /home/ec2-user/crontab"
+    EcsInstanceLc:
+      Condition: "CreateEC2LCWithKeyPair"
+      Type: "AWS::AutoScaling::LaunchConfiguration"
+      Properties:
+        InstanceMonitoring: false
+        ImageId:
+          Ref: "EcsAmiId"
+        InstanceType:
+          Ref: "EcsInstanceType"
+        AssociatePublicIpAddress: true
+        IamInstanceProfile:
+          Ref: "IamRoleInstanceProfile"
+        KeyName:
+          Ref: "KeyName"
+        SecurityGroups:
+          -
+            "Fn::ImportValue": !Join [ "", [ "plainlychrist-network-", !Ref "NetworkIdFromDatabaseId", "-EcsSecurityGroup" ] ]
+        UserData:
+          Fn::Base64: !Sub |
+            From nobody Sun Nov  6 02:25:47 2016
+            Content-Type: multipart/mixed; boundary="===============6273546299974961829=="
+            MIME-Version: 1.0
+
+            --===============6273546299974961829==
+            MIME-Version: 1.0
+            Content-Type: text/cloud-boothook; charset="us-ascii"
+            Content-Transfer-Encoding: 7bit
+            Content-Disposition: attachment; filename="/tmp/c"
+
+            #!/bin/bash -xe
+            # This Mime part can run several times per instance, but is guaranteed first (before Docker daemon runs)
+            yum install -y aws-cfn-bootstrap
+            /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource EcsCluster --configsets PreDockerConfig --region ${AWS::Region}
+
+            --===============6273546299974961829==
+            MIME-Version: 1.0
+            Content-Type: text/x-shellscript; charset="us-ascii"
+            Content-Transfer-Encoding: 7bit
+            Content-Disposition: attachment; filename="/tmp/b"
+
+            #!/bin/bash -xe
+            # This Mime part is run only once per instance, after Docker daemon is running
+            echo ECS_CLUSTER=${EcsCluster} >> /etc/ecs/ecs.config
+            yum update -y # apply security updates
+            /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource EcsCluster --configsets PostDockerConfig --region ${AWS::Region}
+            /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource EcsInstanceAsg --region ${AWS::Region}
+
+            --===============6273546299974961829==--
+      Metadata:
+        AWS::CloudFormation::Designer:
+          id: "45f62786-7ee6-4929-aae2-bb843cdfb460"
+    EcsInstanceLcWithoutKeyPair:
+      Condition: "CreateEC2LCWithoutKeyPair"
+      Type: "AWS::AutoScaling::LaunchConfiguration"
+      Properties:
+        InstanceMonitoring: false
+        ImageId:
+          Ref: "EcsAmiId"
+        InstanceType:
+          Ref: "EcsInstanceType"
+        AssociatePublicIpAddress: true
+        IamInstanceProfile:
+          Ref: "IamRoleInstanceProfile"
+        SecurityGroups:
+          -
+            "Fn::ImportValue": !Join [ "", [ "plainlychrist-network-", !Ref "NetworkIdFromDatabaseId", "-EcsSecurityGroup" ] ]
+        UserData:
+          Fn::Base64: !Sub |
+            From nobody Sun Nov  6 02:25:47 2016
+            Content-Type: multipart/mixed; boundary="===============6273546299974961829=="
+            MIME-Version: 1.0
+
+            --===============6273546299974961829==
+            MIME-Version: 1.0
+            Content-Type: text/cloud-boothook; charset="us-ascii"
+            Content-Transfer-Encoding: 7bit
+            Content-Disposition: attachment; filename="/tmp/c"
+
+            #!/bin/bash -xe
+            # This Mime part can run several times per instance, but is guaranteed first (before Docker daemon runs)
+            yum install -y aws-cfn-bootstrap
+            /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource EcsCluster --configsets PreDockerConfig --region ${AWS::Region}
+
+            --===============6273546299974961829==
+            MIME-Version: 1.0
+            Content-Type: text/x-shellscript; charset="us-ascii"
+            Content-Transfer-Encoding: 7bit
+            Content-Disposition: attachment; filename="/tmp/b"
+
+            #!/bin/bash -xe
+            # This Mime part is run only once per instance, after Docker daemon is running
+            echo ECS_CLUSTER=${EcsCluster} >> /etc/ecs/ecs.config
+            yum update -y # apply security updates
+            /opt/aws/bin/cfn-init -v --stack ${AWS::StackName} --resource EcsCluster --configsets PostDockerConfig --region ${AWS::Region}
+            /opt/aws/bin/cfn-signal -e $? --stack ${AWS::StackName} --resource EcsInstanceAsg --region ${AWS::Region}
+
+            --===============6273546299974961829==--
+      Metadata:
+        AWS::CloudFormation::Designer:
+          id: "b0ae21b6-7459-462b-a810-5dc3696f584c"
+    EcsInstanceAsg:
+      Type: "AWS::AutoScaling::AutoScalingGroup"
+      CreationPolicy:
+        # Wait no more than 10 minutes until we have the /opt/aws/bin/cfn-signal signals from all the desired machines
+        ResourceSignal:
+          Timeout: PT10M
+          Count:
+            Ref: AsgMaxSize
+      Properties:
+        VPCZoneIdentifier:
+          - "Fn::ImportValue": !Join [ "", [ "plainlychrist-network-", !Ref "NetworkIdFromDatabaseId", "-PubSubnetAz1" ] ]
+          - "Fn::ImportValue": !Join [ "", [ "plainlychrist-network-", !Ref "NetworkIdFromDatabaseId", "-PubSubnetAz2" ] ]
+        LaunchConfigurationName:
+          Fn::If:
+            - "CreateEC2LCWithKeyPair"
+            -
+              Ref: "EcsInstanceLc"
+            -
+              Ref: "EcsInstanceLcWithoutKeyPair"
+        MinSize: "1"
+        MaxSize:
+          Ref: "AsgMaxSize"
+        DesiredCapacity:
+          Ref: "AsgMaxSize"
+        LoadBalancerNames:
+          - "Fn::ImportValue": !Join [ "", [ "plainlychrist-network-", !Ref "NetworkIdFromDatabaseId", "-EcsElbId" ] ]
+        Tags:
+          -
+            Key: "Name"
+            Value:
+              Fn::Join:
+                - ""
+                -
+                  - "ECS Instance - "
+                  -
+                    Ref: "AWS::StackName"
+            PropagateAtLaunch: "true"
+    EcsSiteTaskDef:
+      Type: "AWS::ECS::TaskDefinition"
+      Properties:
+        ContainerDefinitions:
+          -
+            VolumesFrom: []
+            Cpu: 10 # don't let HTTP redirect ever swamp the main site
+            Memory: 10
+            PortMappings:
+              -
+                HostPort: 80
+                ContainerPort: 80
+                Protocol: "tcp"
+            Essential: true
+            MountPoints: []
+            Name: "docker-ssl-redirect"
+            Image: "plainlychrist/docker-ssl-redirect:unstable"
+          -
+            VolumesFrom: []
+            Cpu: 1000 # Get at least 1000 of 1024 units of a single-core VCPU
+            Memory: 300
+            PortMappings:
+              -
+                HostPort: 443
+                ContainerPort: 443
+                Protocol: "tcp"
+            Essential: true
+            MountPoints:
+              -
+                ContainerPath: /var/www/html/sites/default/files
+                SourceVolume: site-shared-drupal-files
+            Name: "site-web"
+            Environment:
+              -
+                Name: "MYSQL_HOST"
+                Value:
+                  "Fn::ImportValue": !Join [ "", [ "plainlychrist-database-", !Ref "DatabaseId", "-DrupalDbInstance-Address" ] ]
+              -
+                Name: "MYSQL_PORT"
+                Value:
+                  "Fn::ImportValue": !Join [ "", [ "plainlychrist-database-", !Ref "DatabaseId", "-DrupalDbInstance-Port" ] ]
+              -
+                Name: "MYSQL_DATABASE"
+                Value:
+                  "Fn::ImportValue": !Join [ "", [ "plainlychrist-database-", !Ref "DatabaseId", "-DrupalDbName" ] ]
+              -
+                Name: "MYSQL_PASSWORD"
+                Value:
+                  Ref: "DrupalDBPassword"
+              -
+                Name: "MYSQL_USER"
+                Value:
+                  Ref: "DrupalDBUser"
+              -
+                Name: "WEB_ADMIN_PASSWORD"
+                Value:
+                  Ref: "WebAdminPassword"
+            Image: "plainlychrist/site-web:unstable"
+            Command:
+              # hash salt
+              - "--hash-salt"
+              - !Ref DrupalHashSalt
+              # allow https://ec2-.../
+              - "--trust-this-ec2-host"
+              # allow https://10.0.0.198/ from ELB Health Check
+              - "--trust-this-ec2-local-ipv4"
+              # allow https://xyz.plainlychrist.org/
+              - "Fn::ImportValue": !Join [ "", [ "plainlychrist-network-", !Ref "NetworkIdFromDatabaseId", "-TrustHostPatternArg1" ] ]
+              - "Fn::ImportValue": !Join [ "", [ "plainlychrist-network-", !Ref "NetworkIdFromDatabaseId", "-TrustHostPatternArg2" ] ]
+              # allow https://elb-.../
+              - "--trust-host-pattern"
+              -
+                Fn::Join:
+                  - ""
+                  -
+                    - "^"
+                    - "Fn::ImportValue": !Join [ "", [ "plainlychrist-network-", !Ref "NetworkIdFromDatabaseId", "-ElbDnsName" ] ]
+                    - "$"
+              - "--use-mysql"
+        Volumes:
+          -
+            # share /var/www/html/site/default/files on the EFS mount
+            Host:
+              SourcePath: "/mnt/site-shared-drupal-files/"
+            Name: site-shared-drupal-files
+    EcsSiteService:
+      Type: "AWS::ECS::Service"
+      Properties:
+        DesiredCount: !Ref "AsgMaxSize" # We want as many Drupal sites as the Autoscaling size
+        TaskDefinition: !Ref "EcsSiteTaskDef"
+        Cluster: !Ref "EcsCluster"
+      DependsOn:
+        - "EcsInstanceAsg"
