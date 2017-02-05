@@ -68,35 +68,19 @@
       AllowedPattern: "[0-9]{8}T[0-9]{12}"
       ConstraintDescription: "must be ISO 8601 format, like 20170128T072603428619"
     ElbSSLCertificateCommonName:
-      Default: ""
-      Description: "The common name of the SSL certificate, like mywebsite.org. If not specified, the self-signed certificates of each ECS container are used"
+      Description: "The common name of the SSL certificate, like mywebsite.org"
       Type: "String"
-      MinLength: "0"
+      MinLength: "5"
       MaxLength: "256"
       AllowedPattern: "[a-zA-Z0-9.]*"
       ConstraintDescription: "must be a Common Name"
-    ElbSSLCertificateId:
-      Default: "arn:"
+    ElbSSLCertificateArn:
       Description: "An ARN to a SSL certificate. See http://docs.aws.amazon.com/IAM/latest/UserGuide/id_credentials_server-certs.html. If not specified, the self-signed SSL certificates of each ECS container are used, and a TCP loadbalancer is used for HTTPS so that the SSL terminates on the ECS containers"
       Type: "String"
-      MinLength: "1"
+      MinLength: "5"
       MaxLength: "256"
       AllowedPattern: "arn:[a-zA-Z0-9:_./-]*"
-      ConstraintDescription: "must be an Amazon Resource Name"
-    VpcId:
-      Type: "String"
-      Description: "Optional - VPC Id of existing VPC. Leave blank to have a new VPC created"
-      Default: ""
-      AllowedPattern: "^(?:vpc-[0-9a-f]{8}|)$"
-      ConstraintDescription: "VPC Id must begin with 'vpc-' or leave blank to have a new VPC created"
-    ECSSubnetIds:
-      Type: "CommaDelimitedList"
-      Description: "Optional - Comma separated list of existing VPC Subnet Ids where ECS instances will run; usually a public subnet if it already exists"
-      Default: ""
-    DBSubnetIds:
-      Type: "CommaDelimitedList"
-      Description: "Optional - Comma separated list of existing VPC Subnet Ids where database instances will run; usually a private subnet if it already exists"
-      Default: ""
+      ConstraintDescription: "must be an Amazon Resource Name starting with arn:"
     EcsHttpPort:
       Type: "String"
       Description: "Optional - Security Group HTTP port to open on ECS instances - defaults to port 80"
@@ -126,46 +110,10 @@
       Description: "Optional : Comma-delimited list of two VPC availability zones in which to create subnets"
       Default: "us-west-2c,us-west-2a,us-west-2b"
   Conditions:
-    TerminateSSLOnHosts:
-      Fn::Equals:
-        - Ref: "ElbSSLCertificateCommonName"
-        - ""
-    CreateVpcResources:
-      Fn::Equals:
-        -
-          Ref: "VpcId"
-        - ""
-    ExistingVpcResources:
-      Fn::Not:
-        -
-          Fn::Equals:
-            -
-              Ref: "VpcId"
-            - ""
-    CreateELBForExistingVpc:
-      Fn::And:
-        -
-          Fn::Equals:
-            -
-              Ref: "CreateElasticLoadBalancer"
-            - "true"
-        -
-          Condition: "ExistingVpcResources"
-    CreateELBForNewVpc:
-      Fn::And:
-        -
-          Fn::Equals:
-            -
-              Ref: "CreateElasticLoadBalancer"
-            - "true"
-        -
-          Condition: "CreateVpcResources"
     CreateELB:
-      Fn::Or:
-        -
-          Condition: "CreateELBForExistingVpc"
-        -
-          Condition: "CreateELBForNewVpc"
+      Fn::Equals:
+        - !Ref "CreateElasticLoadBalancer"
+        - "true"
     UseSpecifiedVpcAvailabilityZones:
       Fn::Not:
         -
@@ -178,7 +126,6 @@
             - ""
   Resources:
     Vpc:
-      Condition: "CreateVpcResources"
       Type: "AWS::EC2::VPC"
       Properties:
         CidrBlock:
@@ -189,15 +136,10 @@
             - "vpc"
         EnableDnsSupport: "true"
         EnableDnsHostnames: "true"
-      Metadata:
-        AWS::CloudFormation::Designer:
-          id: "30e0d2a4-e6b5-4ff0-a20b-272e5a4d1ad4"
     PubSubnetAz1:
-      Condition: "CreateVpcResources"
       Type: "AWS::EC2::Subnet"
       Properties:
-        VpcId:
-          Ref: "Vpc"
+        VpcId: !Ref "Vpc"
         CidrBlock:
           Fn::FindInMap:
             - "VpcCidrs"
@@ -218,15 +160,10 @@
                 -
                   Fn::GetAZs:
                     Ref: "AWS::Region"
-      Metadata:
-        AWS::CloudFormation::Designer:
-          id: "61c05d7e-dc62-44a3-bb9b-76bee4756f8d"
     PubSubnetAz2:
-      Condition: "CreateVpcResources"
       Type: "AWS::EC2::Subnet"
       Properties:
-        VpcId:
-          Ref: "Vpc"
+        VpcId: !Ref "Vpc"
         CidrBlock:
           Fn::FindInMap:
             - "VpcCidrs"
@@ -251,11 +188,9 @@
         AWS::CloudFormation::Designer:
           id: "5c8f746c-918a-4e68-8211-d54ddb77afe0"
     PrvSubnetAz1:
-      Condition: "CreateVpcResources"
       Type: "AWS::EC2::Subnet"
       Properties:
-        VpcId:
-          Ref: "Vpc"
+        VpcId: !Ref "Vpc"
         CidrBlock:
           Fn::FindInMap:
             - "VpcCidrs"
@@ -280,11 +215,9 @@
         AWS::CloudFormation::Designer:
           id: "29908788-1e40-4f66-b67c-657f7156d025"
     PrvSubnetAz2:
-      Condition: "CreateVpcResources"
       Type: "AWS::EC2::Subnet"
       Properties:
-        VpcId:
-          Ref: "Vpc"
+        VpcId: !Ref "Vpc"
         CidrBlock:
           Fn::FindInMap:
             - "VpcCidrs"
@@ -309,33 +242,27 @@
         AWS::CloudFormation::Designer:
           id: "6e4cf3fb-5662-4bbe-91c3-ef4049370a38"
     InternetGateway:
-      Condition: "CreateVpcResources"
       Type: "AWS::EC2::InternetGateway"
       Metadata:
         AWS::CloudFormation::Designer:
           id: "5accb84f-ecdb-465a-8dc0-d8437abb696a"
     AttachGateway:
-      Condition: "CreateVpcResources"
       Type: "AWS::EC2::VPCGatewayAttachment"
       Properties:
-        VpcId:
-          Ref: "Vpc"
+        VpcId: !Ref "Vpc"
         InternetGatewayId:
           Ref: "InternetGateway"
       Metadata:
         AWS::CloudFormation::Designer:
           id: "32aa66ee-d2a4-4a2d-b411-a8a7d55a515d"
     RouteViaIgw:
-      Condition: "CreateVpcResources"
       Type: "AWS::EC2::RouteTable"
       Properties:
-        VpcId:
-          Ref: "Vpc"
+        VpcId: !Ref "Vpc"
       Metadata:
         AWS::CloudFormation::Designer:
           id: "6c78ff1d-e74e-4d9c-b66d-e98c53722ea3"
     PublicRouteViaIgw:
-      Condition: "CreateVpcResources"
       Type: "AWS::EC2::Route"
       DependsOn: "AttachGateway"
       Properties:
@@ -348,7 +275,6 @@
         AWS::CloudFormation::Designer:
           id: "370bf67b-9733-46cc-a261-4c7fc9ce63d2"
     PubSubnet1RouteTableAssociation:
-      Condition: "CreateVpcResources"
       Type: "AWS::EC2::SubnetRouteTableAssociation"
       Properties:
         SubnetId:
@@ -359,7 +285,6 @@
         AWS::CloudFormation::Designer:
           id: "3ab86611-92ea-45d6-89db-d7e09964c37c"
     PubSubnet2RouteTableAssociation:
-      Condition: "CreateVpcResources"
       Type: "AWS::EC2::SubnetRouteTableAssociation"
       Properties:
         SubnetId:
@@ -370,16 +295,11 @@
         AWS::CloudFormation::Designer:
           id: "696ce439-4d7d-4ea5-b14d-3f0102a6aef4"
     ElbSecurityGroup:
+      Condition: "CreateELB"
       Type: "AWS::EC2::SecurityGroup"
       Properties:
         GroupDescription: "ELB Allowed Ports"
-        VpcId:
-          Fn::If:
-            - "CreateVpcResources"
-            -
-              Ref: "Vpc"
-            -
-              Ref: "VpcId"
+        VpcId: !Ref "Vpc"
         SecurityGroupIngress:
           -
             IpProtocol: "tcp"
@@ -403,13 +323,7 @@
     DrupalFilesMountTargetSecurityGroup:
       Type: AWS::EC2::SecurityGroup
       Properties:
-        VpcId:
-          Fn::If:
-            - "CreateVpcResources"
-            -
-              Ref: "Vpc"
-            -
-              Ref: "VpcId"
+        VpcId: !Ref "Vpc"
         GroupDescription: Security group for Drupal sites/default/files mount target
         SecurityGroupIngress:
         - IpProtocol: tcp
@@ -421,13 +335,7 @@
       Type: "AWS::EC2::SecurityGroup"
       Properties:
         GroupDescription: "Open database for access"
-        VpcId:
-          Fn::If:
-            - "CreateVpcResources"
-            -
-              Ref: "Vpc"
-            -
-              Ref: "VpcId"
+        VpcId: !Ref "Vpc"
         SecurityGroupIngress:
           -
             IpProtocol: "tcp"
@@ -435,20 +343,11 @@
             ToPort: "3306"
             SourceSecurityGroupId:
               Ref: "EcsSecurityGroup"
-      Metadata:
-        AWS::CloudFormation::Designer:
-          id: "d777ebc2-1fa0-46d5-a67d-866c365c9270"
     EcsSecurityGroup:
       Type: "AWS::EC2::SecurityGroup"
       Properties:
         GroupDescription: "ECS Allowed Ports"
-        VpcId:
-          Fn::If:
-            - "CreateVpcResources"
-            -
-              Ref: "Vpc"
-            -
-              Ref: "VpcId"
+        VpcId: !Ref "Vpc"
         SecurityGroupIngress:
           Fn::If:
             - "CreateELB"
@@ -504,130 +403,89 @@
                 ToPort: "22"
                 CidrIp:
                   Ref: "SourceCidr"
-      Metadata:
-        AWS::CloudFormation::Designer:
-          id: "11e9b77e-12a2-47c3-b18e-34cf6fb81e75"
-    EcsElasticLoadBalancer:
-      Condition: "CreateELBForNewVpc"
-      Type: "AWS::ElasticLoadBalancing::LoadBalancer"
+    EcsLoadBalancer:
+      Condition: "CreateELB"
+      Type: "AWS::ElasticLoadBalancingV2::LoadBalancer"
       Properties:
+        LoadBalancerAttributes: []
+        Name: !Join ["", [ !Ref "AWS::StackName", "-PublicSite" ]]
+        Scheme: internet-facing
         SecurityGroups:
-          -
-            Ref: "ElbSecurityGroup"
+          - !Ref "ElbSecurityGroup"
         Subnets:
-          -
-            Ref: "PubSubnetAz1"
-          -
-            Ref: "PubSubnetAz2"
-        CrossZone: "true"
-        Listeners:
-          -
-            LoadBalancerPort:
-              Ref: "ElbHttpPort"
-            InstancePort:
-              Ref: "EcsHttpPort"
-            Protocol: "HTTP"
-          -
-            Fn::If:
-              - "TerminateSSLOnHosts"
-              -
-                LoadBalancerPort:
-                  Ref: "ElbHttpsPort"
-                InstancePort:
-                  Ref: "EcsHttpsPort"
-                InstanceProtocol: "TCP"
-                Protocol: "TCP"
-              -
-                LoadBalancerPort:
-                  Ref: "ElbHttpsPort"
-                InstancePort:
-                  Ref: "EcsHttpsPort"
-                InstanceProtocol: "HTTPS"
-                PolicyNames:
-                  - MyAppCookieStickinessPolicy
-                Protocol: "HTTPS"
-                SSLCertificateId: !Ref "ElbSSLCertificateId"
-        HealthCheck:
-          Target:
-            Fn::If:
-              - "TerminateSSLOnHosts"
-              - "TCP:443"
-              - "HTTPS:443/"
-          HealthyThreshold: "5"
-          UnhealthyThreshold: "2"
-          Interval: "30"
-          Timeout: "5"
-        Policies:
-          - PolicyName: MyAppCookieStickinessPolicy
-            PolicyType: AppCookieStickinessPolicyType
-            Attributes:
-              - Name: CookieName
-                Value: lbloc # set in Drupal custom loadbalancing_cookie.module
-      Metadata:
-        AWS::CloudFormation::Designer:
-          id: "5a14b8d6-e3be-4699-86db-3aa7ecc0e27d"
-    EcsElasticLoadBalancerExistingVpc:
-      Condition: "CreateELBForExistingVpc"
-      Type: "AWS::ElasticLoadBalancing::LoadBalancer"
+          - !Ref "PubSubnetAz1"
+          - !Ref "PubSubnetAz2"
+    EcsLoadBalancerHttpListener:
+      Condition: "CreateELB"
+      Type: AWS::ElasticLoadBalancingV2::Listener
       Properties:
-        SecurityGroups:
-          -
-            Ref: "ElbSecurityGroup"
-        Subnets:
-          Ref: "ECSSubnetIds"
-        CrossZone: "true"
-        Listeners:
-          -
-            LoadBalancerPort:
-              Ref: "ElbHttpPort"
-            InstancePort:
-              Ref: "EcsHttpPort"
-            Protocol: "HTTP"
-          -
-            Fn::If:
-              - "TerminateSSLOnHosts"
-              -
-                LoadBalancerPort:
-                  Ref: "ElbHttpsPort"
-                InstancePort:
-                  Ref: "EcsHttpsPort"
-                InstanceProtocol: "TCP"
-                Protocol: "TCP"
-              -
-                LoadBalancerPort:
-                  Ref: "ElbHttpsPort"
-                InstancePort:
-                  Ref: "EcsHttpsPort"
-                InstanceProtocol: "HTTPS"
-                PolicyNames:
-                  - MyAppCookieStickinessPolicy
-                Protocol: "HTTPS"
-                SSLCertificateId: !Ref "ElbSSLCertificateId"
-        HealthCheck:
-          Target:
-            Fn::If:
-              - "TerminateSSLOnHosts"
-              - "TCP:443"
-              - "HTTPS:443/"
-          HealthyThreshold: "2"
-          UnhealthyThreshold: "10"
-          Interval: "30"
-          Timeout: "5"
-        Policies:
-          - PolicyName: MyAppCookieStickinessPolicy
-            PolicyType: AppCookieStickinessPolicyType
-            Attributes:
-              - Name: CookieName
-                Value: Drupal.visitor.lbloc # set in Drupal custom loadbalancing_cookie.module
-      Metadata:
-        AWS::CloudFormation::Designer:
-          id: "489c5cf7-1c12-46b0-a4a2-99756235aa52"
+        DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref EcsLoadBalancerRedirectHttpTargetGroup
+        LoadBalancerArn: !Ref EcsLoadBalancer
+        Port: !Ref ElbHttpPort
+        Protocol: HTTP
+    EcsLoadBalancerHttpsListener:
+      Condition: "CreateELB"
+      Type: AWS::ElasticLoadBalancingV2::Listener
+      Properties:
+        Certificates:
+        - CertificateArn: !Ref "ElbSSLCertificateArn"
+        DefaultActions:
+        - Type: forward
+          TargetGroupArn: !Ref EcsLoadBalancerDrupalHttpsTargetGroup
+        LoadBalancerArn: !Ref EcsLoadBalancer
+        Port: !Ref ElbHttpsPort
+        Protocol: HTTPS
+    EcsLoadBalancerRedirectHttpTargetGroup:
+      Condition: "CreateELB"
+      Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+      Properties:
+        HealthCheckIntervalSeconds: 10
+        HealthCheckPort: 'traffic-port'
+        HealthCheckProtocol: HTTP
+        HealthCheckTimeoutSeconds: 5
+        HealthyThresholdCount: 5
+        Matcher:
+          HttpCode: "301" # HTTP/1.1 301 Moved Permanently
+        Name: !Join ["", [ !Ref "AWS::StackName", "-redr" ]]
+        Port: !Ref "EcsHttpPort"
+        Protocol: HTTP
+        TargetGroupAttributes: []
+        UnhealthyThresholdCount: 2
+        VpcId: !Ref "Vpc"
+    EcsLoadBalancerDrupalHttpsTargetGroup:
+      Condition: "CreateELB"
+      Type: "AWS::ElasticLoadBalancingV2::TargetGroup"
+      Properties:
+        HealthCheckIntervalSeconds: 10
+        HealthCheckPort: 'traffic-port'
+        HealthCheckProtocol: HTTPS
+        HealthCheckTimeoutSeconds: 5
+        HealthyThresholdCount: 5
+        Matcher:
+          HttpCode: "200"
+        Name: !Join ["", [ !Ref "AWS::StackName", "-drpl" ]]
+        Port: !Ref "EcsHttpsPort"
+        Protocol: HTTPS
+        TargetGroupAttributes: []
+        UnhealthyThresholdCount: 2
+        VpcId: !Ref "Vpc"
   Outputs:
     # These outputs are for ease of use in the AWS Console. They are not exported.
 
     ElbSSLCertificateCommonName:
       Description: "The common name (public, fully qualified domain name) of the SSL certificate for the load balancer, or empty if none"
       Value: !Ref ElbSSLCertificateCommonName
+
+    # The following are needed by our Promote command in ./conf.py
+
+    EcsLoadBalancerDrupalHttpsTargetGroup:
+      Description: "The load balancer target group for Drupal HTTPS"
+      Value: !Ref EcsLoadBalancerDrupalHttpsTargetGroup
+    EcsLoadBalancerRedirectHttpTargetGroup:
+      Description: "The load balancer target group for Redirect HTTP"
+      Value: !Ref EcsLoadBalancerRedirectHttpTargetGroup
 
     # The below outputs are all exported because they are needed by higher-layered stacks (database, compute)
 
@@ -668,11 +526,11 @@
         Name: !Join ["", [ !Ref "AWS::StackName", "-PrvSubnetAz2" ]]
     ElbDnsName:
       Description: "DNS Name for elastic load balancer"
-      Value:
+      Value: 
         Fn::If:
-          - "CreateELBForNewVpc"
-          - !GetAtt EcsElasticLoadBalancer.DNSName
-          - !GetAtt EcsElasticLoadBalancerExistingVpc.DNSName
+          - "CreateELB"
+          - !GetAtt EcsLoadBalancer.DNSName
+          - ""
       Export:
         Name: !Join ["", [ !Ref "AWS::StackName", "-ElbDnsName" ]]
     EcsElbId:
@@ -680,37 +538,23 @@
       Value:
         Fn::If:
           - "CreateELB"
-          -
-            Fn::If:
-              - "CreateELBForNewVpc"
-              -
-                Ref: "EcsElasticLoadBalancer"
-              -
-                Ref: "EcsElasticLoadBalancerExistingVpc"
+          - !Ref EcsLoadBalancer
           - ""
       Export:
         Name: !Join ["", [ !Ref "AWS::StackName", "-EcsElbId" ]]
     TrustHostPatternArg1:
       Description: "The first argument of either '--trust-host-pattern ^ELASTIC_LOAD_BALANCER_NAME$' or '--no-op --no-op'"
-      Value:
-        Fn::If:
-          - "TerminateSSLOnHosts"
-          - "--no-op"
-          - "--trust-host-pattern"
+      Value: "--trust-host-pattern"
       Export:
         Name: !Join ["", [ !Ref "AWS::StackName", "-TrustHostPatternArg1" ]]
     TrustHostPatternArg2:
       Description: "The second argument of either '--trust-host-pattern ^ELASTIC_LOAD_BALANCER_NAME$' or '--no-op --no-op'"
       Value:
-        Fn::If:
-          - "TerminateSSLOnHosts"
-          - "--no-op"
+        Fn::Join:
+          - ""
           -
-            Fn::Join:
-              - ""
-              -
-                - "^"
-                - !Ref ElbSSLCertificateCommonName
-                - "$"
+            - "^"
+            - !Ref ElbSSLCertificateCommonName
+            - "$"
       Export:
         Name: !Join ["", [ !Ref "AWS::StackName", "-TrustHostPatternArg2" ]]

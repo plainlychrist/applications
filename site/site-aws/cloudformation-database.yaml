@@ -5,7 +5,7 @@
   Description: "AWS CloudFormation template to create a database and shared filesystem for plainlychrist.org"
   Parameters:
     NetworkId:
-      Description: "The 'ID' in plainlychrist-network-ID, which will be used to connect the database stack to the network stack"
+      Description: "The 'ID' in pc-network-ID, which will be used to connect the database stack to the network stack"
       Type: "String"
       MinLength: 1
       MaxLength: 10
@@ -122,7 +122,7 @@
           Ref: "DrupalDBAllocatedStorage"
         VPCSecurityGroups:
           -
-            "Fn::ImportValue": !Join [ "", [ "plainlychrist-network-", !Ref "NetworkId", "-DrupalDbSecurityGroup" ] ]
+            "Fn::ImportValue": !Join [ "", [ "pc-network-", !Ref "NetworkId", "-DrupalDbSecurityGroup" ] ]
       Metadata:
         AWS::CloudFormation::Designer:
           id: "97750b54-3b05-4dd9-b05a-6303bb3ca158"
@@ -131,8 +131,8 @@
       Properties:
         DBSubnetGroupDescription: "RDS DB subnet group"
         SubnetIds:
-          - "Fn::ImportValue": !Join [ "", [ "plainlychrist-network-", !Ref "NetworkId", "-PrvSubnetAz1" ] ]
-          - "Fn::ImportValue": !Join [ "", [ "plainlychrist-network-", !Ref "NetworkId", "-PrvSubnetAz2" ] ]
+          - "Fn::ImportValue": !Join [ "", [ "pc-network-", !Ref "NetworkId", "-PrvSubnetAz1" ] ]
+          - "Fn::ImportValue": !Join [ "", [ "pc-network-", !Ref "NetworkId", "-PrvSubnetAz2" ] ]
       Metadata:
         AWS::CloudFormation::Designer:
           id: "2f4913c4-a2a3-4f68-96ea-82af38484970"
@@ -155,18 +155,18 @@
         FileSystemId:
           Ref: DrupalFilesFileSystem
         SubnetId:
-          "Fn::ImportValue": !Join [ "", [ "plainlychrist-network-", !Ref "NetworkId", "-PubSubnetAz1" ] ]
+          "Fn::ImportValue": !Join [ "", [ "pc-network-", !Ref "NetworkId", "-PubSubnetAz1" ] ]
         SecurityGroups:
-        - "Fn::ImportValue": !Join [ "", [ "plainlychrist-network-", !Ref "NetworkId", "-DrupalFilesMountTargetSecurityGroup" ] ]
+        - "Fn::ImportValue": !Join [ "", [ "pc-network-", !Ref "NetworkId", "-DrupalFilesMountTargetSecurityGroup" ] ]
     MountTargetAz2:
       Type: AWS::EFS::MountTarget
       Properties:
         FileSystemId:
           Ref: DrupalFilesFileSystem
         SubnetId:
-          "Fn::ImportValue": !Join [ "", [ "plainlychrist-network-", !Ref "NetworkId", "-PubSubnetAz2" ] ]
+          "Fn::ImportValue": !Join [ "", [ "pc-network-", !Ref "NetworkId", "-PubSubnetAz2" ] ]
         SecurityGroups:
-        - "Fn::ImportValue": !Join [ "", [ "plainlychrist-network-", !Ref "NetworkId", "-DrupalFilesMountTargetSecurityGroup" ] ]
+        - "Fn::ImportValue": !Join [ "", [ "pc-network-", !Ref "NetworkId", "-DrupalFilesMountTargetSecurityGroup" ] ]
     DrupalDbInstance:
       Type: "AWS::RDS::DBInstance"
       Properties:
@@ -188,7 +188,7 @@
           Ref: "DrupalDBAllocatedStorage"
         VPCSecurityGroups:
           -
-            "Fn::ImportValue": !Join [ "", [ "plainlychrist-network-", !Ref "NetworkId", "-DrupalDbSecurityGroup" ] ]
+            "Fn::ImportValue": !Join [ "", [ "pc-network-", !Ref "NetworkId", "-DrupalDbSecurityGroup" ] ]
       Metadata:
         AWS::CloudFormation::Designer:
           id: "97750b54-3b05-4dd9-b05a-6303bb3ca158"
@@ -197,8 +197,8 @@
       Properties:
         DBSubnetGroupDescription: "RDS DB subnet group"
         SubnetIds:
-          - "Fn::ImportValue": !Join [ "", [ "plainlychrist-network-", !Ref "NetworkId", "-PrvSubnetAz1" ] ]
-          - "Fn::ImportValue": !Join [ "", [ "plainlychrist-network-", !Ref "NetworkId", "-PrvSubnetAz2" ] ]
+          - "Fn::ImportValue": !Join [ "", [ "pc-network-", !Ref "NetworkId", "-PrvSubnetAz1" ] ]
+          - "Fn::ImportValue": !Join [ "", [ "pc-network-", !Ref "NetworkId", "-PrvSubnetAz2" ] ]
       Metadata:
         AWS::CloudFormation::Designer:
           id: "2f4913c4-a2a3-4f68-96ea-82af38484970"
@@ -221,18 +221,18 @@
         FileSystemId:
           Ref: DrupalFilesFileSystem
         SubnetId:
-          "Fn::ImportValue": !Join [ "", [ "plainlychrist-network-", !Ref "NetworkId", "-PubSubnetAz1" ] ]
+          "Fn::ImportValue": !Join [ "", [ "pc-network-", !Ref "NetworkId", "-PubSubnetAz1" ] ]
         SecurityGroups:
-        - "Fn::ImportValue": !Join [ "", [ "plainlychrist-network-", !Ref "NetworkId", "-DrupalFilesMountTargetSecurityGroup" ] ]
+        - "Fn::ImportValue": !Join [ "", [ "pc-network-", !Ref "NetworkId", "-DrupalFilesMountTargetSecurityGroup" ] ]
     MountTargetAz2:
       Type: AWS::EFS::MountTarget
       Properties:
         FileSystemId:
           Ref: DrupalFilesFileSystem
         SubnetId:
-          "Fn::ImportValue": !Join [ "", [ "plainlychrist-network-", !Ref "NetworkId", "-PubSubnetAz2" ] ]
+          "Fn::ImportValue": !Join [ "", [ "pc-network-", !Ref "NetworkId", "-PubSubnetAz2" ] ]
         SecurityGroups:
-        - "Fn::ImportValue": !Join [ "", [ "plainlychrist-network-", !Ref "NetworkId", "-DrupalFilesMountTargetSecurityGroup" ] ]
+        - "Fn::ImportValue": !Join [ "", [ "pc-network-", !Ref "NetworkId", "-DrupalFilesMountTargetSecurityGroup" ] ]
   Outputs:
     DrupalDbInstanceAddress:
       Description: "The address of the Drupal database instance"

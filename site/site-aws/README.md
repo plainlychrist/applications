@@ -27,7 +27,7 @@ sudo yum install expect
 
 MYPWD=$(mkpasswd -s 0 -l 40)
 DRPWD=$(mkpasswd -s 0 -l 40)
-aws --profile site-dev cloudformation create-stack --parameters ParameterKey=DrupalDBAllocatedStorage,ParameterValue=5 ParameterKey=DrupalDBEngine,ParameterValue=MySQL ParameterKey=DrupalDBInstanceClass,ParameterValue=db.t2.micro ParameterKey=DrupalDBName,ParameterValue=drupal ParameterKey=DrupalDBPassword,ParameterValue="${MYPWD}" ParameterKey=WebAdminPassword,ParameterValue="${DRPWD}" ParameterKey=DrupalDBUser,ParameterValue=drupal ParameterKey=DrupalMultiAZDatabase,ParameterValue=false ParameterKey=EcsAmiId,ParameterValue=${ECS_AMI_ID} ParameterKey=EcsInstanceType,ParameterValue=t2.micro ParameterKey=IamRoleInstanceProfile,ParameterValue=ecsInstanceRole ParameterKey=KeyName,ParameterValue=${SSH_KEY_NAME} ParameterKey=SourceCidr,ParameterValue=${MY_IP}/32 --stack-name plainlychrist-$RANDOM --template-body "$(cat cloudformation.yaml)"
+aws --profile site-dev cloudformation create-stack --parameters ParameterKey=DrupalDBAllocatedStorage,ParameterValue=5 ParameterKey=DrupalDBEngine,ParameterValue=MySQL ParameterKey=DrupalDBInstanceClass,ParameterValue=db.t2.micro ParameterKey=DrupalDBName,ParameterValue=drupal ParameterKey=DrupalDBPassword,ParameterValue="${MYPWD}" ParameterKey=WebAdminPassword,ParameterValue="${DRPWD}" ParameterKey=DrupalDBUser,ParameterValue=drupal ParameterKey=DrupalMultiAZDatabase,ParameterValue=false ParameterKey=EcsAmiId,ParameterValue=${ECS_AMI_ID} ParameterKey=EcsInstanceType,ParameterValue=t2.micro ParameterKey=IamRoleInstanceProfile,ParameterValue=ecsInstanceRole ParameterKey=KeyName,ParameterValue=${SSH_KEY_NAME} ParameterKey=SourceCidr,ParameterValue=${MY_IP}/32 --stack-name pc-$RANDOM --template-body "$(cat cloudformation.yaml)"
 echo "Drupal Password: $DRPWD"
 ```
 
@@ -38,7 +38,7 @@ You'll need to register or create an SSL certificate in the AWS Certificate Mana
 Add to the `--parameters` an ARN from the AWS Certificate Manager and the website protected by the certificate. Here is an example:
 
 ```bash
-ParameterKey=ElbSSLCertificateId,ParameterValue=arn:aws:acm:us-west-2:123456789012:certificate/333af33a-3333-3cb3-333a-3a33b33a3333 ParameterKey=ElbSSLCertificateCommonName,ParameterValue=xyz.yoursite.org
+ParameterKey=ElbSSLCertificateArn,ParameterValue=arn:aws:acm:us-west-2:123456789012:certificate/333af33a-3333-3cb3-333a-3a33b33a3333 ParameterKey=ElbSSLCertificateCommonName,ParameterValue=xyz.yoursite.org
 ```
 
 ## Using more than one machine

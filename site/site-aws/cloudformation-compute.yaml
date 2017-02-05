@@ -5,16 +5,16 @@
   Description: "AWS CloudFormation template to create computing resources for plainlychrist.org"
   Parameters:
     NetworkIdFromDatabaseId:
-      Description: "The 'ID1' in plainlychrist-database-ID1-ID2, which will be used to connect the compute stack to the network stack"
+      Description: "The 'ID1' in pc-database-ID1-ID2, which will be used to connect the compute stack to the network stack"
       Type: "String"
       MinLength: 1
-      MaxLength: 10
+      MaxLength: 5
       AllowedPattern: "[0-9]+"
     DatabaseId:
-      Description: "The 'ID1-ID2' in plainlychrist-database-ID1-ID2, which will be used to connect the compute stack to the database stack"
+      Description: "The 'ID1-ID2' in pc-database-ID1-ID2, which will be used to connect the compute stack to the database stack"
       Type: "String"
       MinLength: 1
-      MaxLength: 10
+      MaxLength: 11
       AllowedPattern: "[0-9]+-[0-9]+"
     ModificationTimestamp:
       Description: "The modification date of the stack, in ISO-8601 format"
@@ -155,7 +155,7 @@
                       grep /mnt/site-shared-drupal-files /etc/mtab || mount -t nfs4 -o nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 $(curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone).${DrupalFilesFileSystem}.efs.${AWS::Region}.amazonaws.com:/ /mnt/site-shared-drupal-files
                     -
                       DrupalFilesFileSystem:
-                        "Fn::ImportValue": !Join [ "", [ "plainlychrist-database-", !Ref "DatabaseId", "-DrupalFilesFileSystem" ] ]
+                        "Fn::ImportValue": !Join [ "", [ "pc-database-", !Ref "DatabaseId", "-DrupalFilesFileSystem" ] ]
 
               03_fstab:
                 # http://docs.aws.amazon.com/efs/latest/ug/mount-fs-auto-mount-onreboot.html
@@ -165,7 +165,7 @@
                       grep /mnt/site-shared-drupal-files /etc/fstab || echo "$(curl -s http://169.254.169.254/latest/meta-data/placement/availability-zone).${DrupalFilesFileSystem}.efs.${AWS::Region}.amazonaws.com:/ /mnt/site-shared-drupal-files nfs4 nfsvers=4.1,rsize=1048576,wsize=1048576,hard,timeo=600,retrans=2 0 0" >> /etc/fstab
                     -
                       DrupalFilesFileSystem:
-                        "Fn::ImportValue": !Join [ "", [ "plainlychrist-database-", !Ref "DatabaseId", "-DrupalFilesFileSystem" ] ]
+                        "Fn::ImportValue": !Join [ "", [ "pc-database-", !Ref "DatabaseId", "-DrupalFilesFileSystem" ] ]
           setupPostDocker:
             files:
               "/home/ec2-user/post_nfsstat":
@@ -258,7 +258,7 @@
           Ref: "KeyName"
         SecurityGroups:
           -
-            "Fn::ImportValue": !Join [ "", [ "plainlychrist-network-", !Ref "NetworkIdFromDatabaseId", "-EcsSecurityGroup" ] ]
+            "Fn::ImportValue": !Join [ "", [ "pc-network-", !Ref "NetworkIdFromDatabaseId", "-EcsSecurityGroup" ] ]
         UserData:
           Fn::Base64: !Sub |
             From nobody Sun Nov  6 02:25:47 2016
@@ -307,7 +307,7 @@
           Ref: "IamRoleInstanceProfile"
         SecurityGroups:
           -
-            "Fn::ImportValue": !Join [ "", [ "plainlychrist-network-", !Ref "NetworkIdFromDatabaseId", "-EcsSecurityGroup" ] ]
+            "Fn::ImportValue": !Join [ "", [ "pc-network-", !Ref "NetworkIdFromDatabaseId", "-EcsSecurityGroup" ] ]
         UserData:
           Fn::Base64: !Sub |
             From nobody Sun Nov  6 02:25:47 2016
@@ -352,8 +352,8 @@
             Ref: AsgMaxSize
       Properties:
         VPCZoneIdentifier:
-          - "Fn::ImportValue": !Join [ "", [ "plainlychrist-network-", !Ref "NetworkIdFromDatabaseId", "-PubSubnetAz1" ] ]
-          - "Fn::ImportValue": !Join [ "", [ "plainlychrist-network-", !Ref "NetworkIdFromDatabaseId", "-PubSubnetAz2" ] ]
+          - "Fn::ImportValue": !Join [ "", [ "pc-network-", !Ref "NetworkIdFromDatabaseId", "-PubSubnetAz1" ] ]
+          - "Fn::ImportValue": !Join [ "", [ "pc-network-", !Ref "NetworkIdFromDatabaseId", "-PubSubnetAz2" ] ]
         LaunchConfigurationName:
           Fn::If:
             - "CreateEC2LCWithKeyPair"
@@ -366,22 +366,19 @@
           Ref: "AsgMaxSize"
         DesiredCapacity:
           Ref: "AsgMaxSize"
-        LoadBalancerNames:
-          - "Fn::ImportValue": !Join [ "", [ "plainlychrist-network-", !Ref "NetworkIdFromDatabaseId", "-EcsElbId" ] ]
         Tags:
           -
-            Key: "Name"
-            Value:
-              Fn::Join:
-                - ""
-                -
-                  - "ECS Instance - "
-                  -
-                    Ref: "AWS::StackName"
+            Key: "plainlychrist:network-id"
+            Value: !Join [ "", [ "pc-network-", !Ref "NetworkIdFromDatabaseId" ] ]
             PropagateAtLaunch: "true"
-    EcsSiteTaskDef:
+          -
+            Key: "plainlychrist:database-id"
+            Value: !Join [ "", [ "pc-database-", !Ref "DatabaseId" ] ]
+            PropagateAtLaunch: "true"
+    EcsRedirectTaskDef:
       Type: "AWS::ECS::TaskDefinition"
       Properties:
+        Family: !Join ["", [ !Ref "AWS::StackName", "-Redirect" ]]
         ContainerDefinitions:
           -
             VolumesFrom: []
@@ -389,20 +386,25 @@
             Memory: 10
             PortMappings:
               -
-                HostPort: 80
+                HostPort: 0 # random unallocated port; allow multiple containers in one machine
                 ContainerPort: 80
                 Protocol: "tcp"
             Essential: true
             MountPoints: []
             Name: "docker-ssl-redirect"
             Image: "plainlychrist/docker-ssl-redirect:unstable"
+    EcsDrupalTaskDef:
+      Type: "AWS::ECS::TaskDefinition"
+      Properties:
+        Family: !Join ["", [ !Ref "AWS::StackName", "-Drupal" ]]
+        ContainerDefinitions:
           -
             VolumesFrom: []
             Cpu: 1000 # Get at least 1000 of 1024 units of a single-core VCPU
             Memory: 300
             PortMappings:
               -
-                HostPort: 443
+                HostPort: 0 # random unallocated port; allow multiple containers in one machine
                 ContainerPort: 443
                 Protocol: "tcp"
             Essential: true
@@ -415,15 +417,15 @@
               -
                 Name: "MYSQL_HOST"
                 Value:
-                  "Fn::ImportValue": !Join [ "", [ "plainlychrist-database-", !Ref "DatabaseId", "-DrupalDbInstance-Address" ] ]
+                  "Fn::ImportValue": !Join [ "", [ "pc-database-", !Ref "DatabaseId", "-DrupalDbInstance-Address" ] ]
               -
                 Name: "MYSQL_PORT"
                 Value:
-                  "Fn::ImportValue": !Join [ "", [ "plainlychrist-database-", !Ref "DatabaseId", "-DrupalDbInstance-Port" ] ]
+                  "Fn::ImportValue": !Join [ "", [ "pc-database-", !Ref "DatabaseId", "-DrupalDbInstance-Port" ] ]
               -
                 Name: "MYSQL_DATABASE"
                 Value:
-                  "Fn::ImportValue": !Join [ "", [ "plainlychrist-database-", !Ref "DatabaseId", "-DrupalDbName" ] ]
+                  "Fn::ImportValue": !Join [ "", [ "pc-database-", !Ref "DatabaseId", "-DrupalDbName" ] ]
               -
                 Name: "MYSQL_PASSWORD"
                 Value:
@@ -446,8 +448,8 @@
               # allow https://10.0.0.198/ from ELB Health Check
               - "--trust-this-ec2-local-ipv4"
               # allow https://xyz.plainlychrist.org/
-              - "Fn::ImportValue": !Join [ "", [ "plainlychrist-network-", !Ref "NetworkIdFromDatabaseId", "-TrustHostPatternArg1" ] ]
-              - "Fn::ImportValue": !Join [ "", [ "plainlychrist-network-", !Ref "NetworkIdFromDatabaseId", "-TrustHostPatternArg2" ] ]
+              - "Fn::ImportValue": !Join [ "", [ "pc-network-", !Ref "NetworkIdFromDatabaseId", "-TrustHostPatternArg1" ] ]
+              - "Fn::ImportValue": !Join [ "", [ "pc-network-", !Ref "NetworkIdFromDatabaseId", "-TrustHostPatternArg2" ] ]
               # allow https://elb-.../
               - "--trust-host-pattern"
               -
@@ -455,7 +457,7 @@
                   - ""
                   -
                     - "^"
-                    - "Fn::ImportValue": !Join [ "", [ "plainlychrist-network-", !Ref "NetworkIdFromDatabaseId", "-ElbDnsName" ] ]
+                    - "Fn::ImportValue": !Join [ "", [ "pc-network-", !Ref "NetworkIdFromDatabaseId", "-ElbDnsName" ] ]
                     - "$"
               - "--use-mysql"
         Volumes:
@@ -464,11 +466,19 @@
             Host:
               SourcePath: "/mnt/site-shared-drupal-files/"
             Name: site-shared-drupal-files
-    EcsSiteService:
+    EcsRedirectService:
       Type: "AWS::ECS::Service"
       Properties:
-        DesiredCount: !Ref "AsgMaxSize" # We want as many Drupal sites as the Autoscaling size
-        TaskDefinition: !Ref "EcsSiteTaskDef"
+        DesiredCount: 3 # We only need a few for redundancy
+        TaskDefinition: !Ref "EcsRedirectTaskDef"
+        Cluster: !Ref "EcsCluster"
+      DependsOn:
+        - "EcsInstanceAsg"
+    EcsDrupalService:
+      Type: "AWS::ECS::Service"
+      Properties:
+        DesiredCount: 2 # This really should be load-dependent (CloudWatch triggered AutoScalingGroup). Two is bare minimum
+        TaskDefinition: !Ref "EcsDrupalTaskDef"
         Cluster: !Ref "EcsCluster"
       DependsOn:
         - "EcsInstanceAsg"
