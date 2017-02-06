@@ -21,6 +21,9 @@ except ImportError as e:
     print ("FATAL: %s. Please follow the installation instructions at http://curses-menu.readthedocs.io/en/latest/installation.html" % (e))
     sys.exit(1)
 
+# stop 'terminal messed up when the application dies without restoring the terminal to its previous state'
+from curses import wrapper
+
 # import a file configuration library
 try:
     import yaml
@@ -52,6 +55,52 @@ def rlinput(prompt, defaultval=''):
       return input(prompt)
    finally:
       readline.set_startup_hook()
+
+def deconstruct_stack_name(stack):
+    m = re.match('pc-([a-z]+)-([0-9]+)(-([0-9]+))?', stack)
+    # skip non-plainlychrist stacks
+    if m is None: return (None, None, None)
+
+    # capture network id and possibly database id
+    this_stacktype = m.group(1)
+    this_network = m.group(2)
+    this_database = m.group(4) # could be None
+
+    return (this_stacktype, this_network, this_database)
+
+def list_stacks(filters=None):
+    args = '' if filters is None else '--stack-status-filter {0}'.format(filters)
+    p = subprocess.Popen('aws --profile site-dev --output json --no-paginate cloudformation list-stacks {0}'.format(args), shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+    jsonstr = p.stdout.read()
+    output = json.loads(jsonstr)
+    return output["StackSummaries"]
+
+def acquire_compute_bindings(stack, family, cis):
+    # find all the new tasks for the Family
+    cmd ='aws --profile site-dev --no-paginate --output json ecs list-tasks --cluster {0} --family {0}-{1}'.format(stack,family)
+    print(cmd)
+    p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+    jsonstr = p.stdout.read()
+    output = json.loads(jsonstr)
+    tasks = output['taskArns']
+
+    binds = set()
+    if tasks is None or len(tasks) == 0: return binds
+
+    # find out the bindings for the tasks
+    cmd ='aws --profile site-dev --no-paginate --output json ecs describe-tasks --cluster {0} --tasks {1}'.format(stack,' '.join(tasks))
+    print(cmd)
+    p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+    jsonstr = p.stdout.read()
+    output = json.loads(jsonstr)
+    for t in output['tasks']:
+        ci = t['containerInstanceArn']
+        cis.add(ci)
+
+        for c in t['containers']:
+            for n in c['networkBindings']:
+                binds.add( (ci, n['hostPort']) )
+    return binds
 
 class ConfigMenu:
     """
@@ -149,7 +198,6 @@ class ConfigMenu:
                 ident = '{0}-{1}-{2:05d}'.format(network, database, random.randrange(0,100000))
             else:
                 raise Exception('Unrecognized stacktype {0}'.format(self.stacktype))
-                return
             s += " --stack-name 'pc-{0}-{1}'".format(self.stacktype, ident)
             s += self.common_stack_params(network, database)
             print(s)
@@ -186,7 +234,7 @@ class ConfigMenu:
             self.handle_menu_error()
             raise
 
-    def promote_stack(self, stack, network, database):
+    def promote_compute_stack(self, stack, all_compute_stacks, network, database):
         '''
         Follow the steps in site-web/docs/DESIGN-UPDATE.md
 
@@ -234,67 +282,55 @@ class ConfigMenu:
                         oldhostnames.append( i["PublicDnsName"] )
                     else:
                         newhostnames.append( i["PublicDnsName"] )
-            if len(oldhostnames) == 0 or len(newhostnames) == 0:
+
+            if len(oldhostnames) == 0:
                 print('')
                 print('WARNING')
                 print('----')
                 print('')
-                print('We did not find an "old" host NOT IN the stack (we found {0}), or we did not find a "new" host IN the stack (we found {1})'.format(oldhostnames, newhostnames))
+                print('We did not find an "old" host that is NOT IN the compute stack (we found {0})'.format(oldhostnames))
+                print('It may mean that you are doing a first-time installation.')
                 print('')
                 input('Press Enter to continue ... ')
+
+            if len(newhostnames) == 0:
+                print('')
+                print('ERROR')
+                print('----')
+                print('')
+                print('We did not find a "new" host within the compute stack (we found {0})'.format(newhostnames))
+                print('')
+                input('Press Enter to leave ... ')
+                return
     
             oldhostname = random.choice(oldhostnames) if len(oldhostnames) > 0 else None
             newhostname = random.choice(newhostnames) if len(newhostnames) > 0 else None
             oldssh = 'ssh -i ~/.ssh/ecs-login-id_rsa -l ec2-user {0}'.format(oldhostname)
             newssh = 'ssh -i ~/.ssh/ecs-login-id_rsa -l ec2-user {0}'.format(newhostname)
 
-            # find all the new Redirect tasks
-            cmd ='aws --profile site-dev --no-paginate --output json ecs list-tasks --cluster {0} --family {1}-Redirect'.format(stack,stack)
-            print(cmd)
-            p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
-            jsonstr = p.stdout.read()
-            output = json.loads(jsonstr)
-            redirect_tasks = output['taskArns']
-
-            # find all the new Drupal tasks
-            cmd ='aws --profile site-dev --no-paginate --output json ecs list-tasks --cluster {0} --family {1}-Drupal'.format(stack,stack)
-            print(cmd)
-            p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
-            jsonstr = p.stdout.read()
-            output = json.loads(jsonstr)
-            drupal_tasks = output['taskArns']
-
             all_cis = set()
 
-            # find what we should bind for Redirect tasks
-            cmd ='aws --profile site-dev --no-paginate --output json ecs describe-tasks --cluster {0} --tasks {1}'.format(stack,' '.join(redirect_tasks))
-            print(cmd)
-            p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
-            jsonstr = p.stdout.read()
-            output = json.loads(jsonstr)
-            redirect_binds = []
-            for t in output['tasks']:
-                ci = t['containerInstanceArn']
-                all_cis.add(ci)
+            # find what we should bind for Drupal and Redirect family of tasks
+            new_redirect_binds = acquire_compute_bindings(stack, 'Redirect', all_cis)
+            new_drupal_binds = acquire_compute_bindings(stack, 'Drupal', all_cis)
 
-                for c in t['containers']:
-                    for n in c['networkBindings']:
-                        redirect_binds.append( (ci, n['hostPort']) )
-
-            # find what we should bind for Drupal tasks
-            cmd ='aws --profile site-dev --no-paginate --output json ecs describe-tasks --cluster {0} --tasks {1}'.format(stack,' '.join(drupal_tasks))
-            print(cmd)
-            p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
-            jsonstr = p.stdout.read()
-            output = json.loads(jsonstr)
-            drupal_binds = []
-            for t in output['tasks']:
-                ci = t['containerInstanceArn']
-                all_cis.add(ci)
-
-                for c in t['containers']:
-                    for n in c['networkBindings']:
-                        drupal_binds.append( (ci, n['hostPort']) )
+            # find the old binds (the task bindings for all other stacks that share the network+database _except_ 'stack')
+            old_stacks = {s for s in all_compute_stacks if s != stack and deconstruct_stack_name(s)[1] == network and deconstruct_stack_name(s)[2] == database}
+            old_redirect_binds = set()
+            old_drupal_binds = set()
+            for old_stack in old_stacks:
+                old_redirect_binds = old_redirect_binds | acquire_compute_bindings(old_stack, 'Redirect', all_cis)
+                old_drupal_binds = old_drupal_binds | acquire_compute_bindings(old_stack, 'Drupal', all_cis)
+            print('')
+            print('Old stacks: ', old_stacks)
+            print('New stack: ', stack)
+            print('')
+            print('Old Redirect bindings: ', old_redirect_binds)
+            print('New Redirect bindings: ', new_redirect_binds)
+            print('')
+            print('Old Drupal bindings: ', old_drupal_binds)
+            print('New Drupal bindings: ', new_drupal_binds)
+            input('Press Enter to proceed ... ')
 
             # resolve all the container instances
             cmd ='aws --profile site-dev --no-paginate --output json ecs describe-container-instances --cluster {0} --container-instances {1}'.format(stack, ' '.join(all_cis))
@@ -302,10 +338,23 @@ class ConfigMenu:
             p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
             jsonstr = p.stdout.read()
             output = json.loads(jsonstr)
+            failures = output['failures']
+            reported_cis = output['containerInstances']
+
+            # for old tasks (only) it is fine if their container instances are missing
+            old_missing_cis = set()
+            new_cis = { b[0] for b in (new_redirect_binds | new_drupal_binds) }
+            for failure in failures:
+                if failure['reason'] == 'MISSING':
+                    ci = failure['arn']
+                    if ci in new_cis:
+                        raise Exception('Safety check failed. There is a new container instance {0} that is reported MISSING'.format(ci))
+                    old_missing_cis.add(ci)
+            if (len(reported_cis) + len(old_missing_cis)) != len(all_cis):
+                raise Exception('Safety check failed. Saw {0} reported and {1} old missing container instances, but we asked for {2} in total'.format( len(reported_cis), len(old_missing_cis), len(all_cis)))
             ci_ec2instance_map = dict()
-            for ci in output['containerInstances']:
+            for ci in reported_cis:
                 ci_ec2instance_map[ci['containerInstanceArn']] = ci['ec2InstanceId']
-            print (ci_ec2instance_map)
 
             print('')
             print('INSTRUCTIONS')
@@ -316,6 +365,22 @@ class ConfigMenu:
             print('')
             if oldhostname is not None: print('We will be running commands on a random _old_ ECS host ({0})'.format(oldhostname))
             print('We will be running commands on a random _new_ ECS host ({0})'.format(newhostname))
+            print('')
+            print('WHAT WILL HAPPEN')
+            print('----')
+            print('')
+            if oldhostname is not None:
+                print('THEN. The Drupal site will be put into maintenance (from within the old Drupal services)')
+                print('  * _Any_ Drupal service (old or new) will return a Site Maintenance Page and HTTP 503. ')
+                print('  * Elastic Load Balancer (ELB) will put all HTTP 503 services (ex. Drupal, but not Redirect) into OutOfService')
+                print('  * When all services in an ELB target group go OutOfService, ELB will send the request to a random service')
+                print('  * The HTTP 503 is a signal to Google to stop indexing; https://webmasters.googleblog.com/2011/01/how-to-deal-with-planned-site-downtime.html')
+                print('')
+            print('THEN. Drupal update steps will be performed on the new Drupal services')
+            print('THEN. The new Drupal and Redirect services will be added to ELB')
+            if oldhostname is not None:
+                print('THEN. The old Drupal and Redirect services will be removed from ELB')
+            print('')
             input('Press Enter to proceed ... ')
    
             if oldhostname is not None:
@@ -327,15 +392,8 @@ class ConfigMenu:
         
                 print('')
                 print('----')
-                cmd = '{0} uptime'.format(newssh, '{{.ID}}')
-                print('Running on the _new_ ECS host ... to get rid of any SSH unknown host warnings:\n  {0}'.format(cmd))
-                subprocess.call (cmd, shell=True)
-        
-                print('')
-                print('----')
                 cmd = '{0} docker ps --filter status=running,label=com.amazonaws.ecs.container-name=site-web --format {1} | sort --random-sort | head -n1'.format(oldssh, '{{.ID}}')
                 print('Finding a random site-web container on the _old_ ECS host:\n  {0}'.format(cmd))
-                input('Press Enter to proceed ... ')
         
                 p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
                 webid = p.stdout.read().rstrip()
@@ -347,20 +405,23 @@ class ConfigMenu:
                 cmd = '{0} sset system.maintenance_mode 1'.format(drush)
                 print('Running on the _old_ ECS host:\n  {0}'.format(cmd))
                 subprocess.call (cmd, shell=True)
-                input('Press Enter to proceed ... ')
         
                 print('')
                 print('----')
                 cmd = '{0} cache-rebuild'.format(drush)
                 print('Running on the _old_ ECS host:\n  {0}'.format(cmd))
                 subprocess.call (cmd, shell=True)
-                input('Press Enter to proceed ... ')
 
+            print('')
+            print('----')
+            cmd = '{0} uptime'.format(newssh, '{{.ID}}')
+            print('Running on the _new_ ECS host ... to get rid of any SSH unknown host warnings:\n  {0}'.format(cmd))
+            subprocess.call (cmd, shell=True)
+        
             print('')
             print('----')
             cmd = '{0} docker ps --filter status=running,label=com.amazonaws.ecs.container-name=site-web --format {1} | sort --random-sort | head -n1'.format(newssh, '{{.ID}}')
             print('Finding a random site-web container on the _new_ ECS host:\n  {0}'.format(cmd))
-            input('Press Enter to proceed ... ')
     
             p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
             webid = p.stdout.read().rstrip()
@@ -382,12 +443,16 @@ class ConfigMenu:
             print('Running on the _new_ ECS host:\n  {0}'.format(cmd))
             subprocess.call (cmd, shell=True)
 
+            print('')
+            print('')
+            print(' ----------------------------------------- ')
+            print('')
+            print('')
             input('*Verify* the above worked. Press Enter to proceed ... ')
-
 
             # bind new Redirect
             targets = []
-            for ci_port in redirect_binds:
+            for ci_port in new_redirect_binds:
                 targets.append('Id={0},Port={1}'.format( ci_ec2instance_map[ci_port[0]], ci_port[1] ))
             cmd ='aws --profile site-dev --output text elbv2 register-targets --target-group-arn {0} --targets {1}'.format(redirect_targetgroup, ' '.join(targets))
             print(cmd)
@@ -395,13 +460,38 @@ class ConfigMenu:
 
             # bind new Drupal
             targets = []
-            for ci_port in drupal_binds:
+            for ci_port in new_drupal_binds:
                 targets.append('Id={0},Port={1}'.format( ci_ec2instance_map[ci_port[0]], ci_port[1] ))
             cmd ='aws --profile site-dev --output text elbv2 register-targets --target-group-arn {0} --targets {1}'.format(drupal_targetgroup, ' '.join(targets))
             print(cmd)
             subprocess.call (cmd, shell=True)
 
-            # TODO: deregister all other (old) Redirect and Drupal binds
+            # unbind old Redirect
+            targets = []
+            for (ci, port) in old_redirect_binds:
+                if ci not in ci_ec2instance_map: continue
+                if ci not in old_missing_cis: continue
+                targets.append('Id={0},Port={1}'.format( ci_ec2instance_map[ci], port ))
+            if len(targets) > 0:
+                cmd ='aws --profile site-dev --output text elbv2 deregister-targets --target-group-arn {0} --targets {1}'.format(redirect_targetgroup, ' '.join(targets))
+                print(cmd)
+                subprocess.call (cmd, shell=True)
+
+            # unbind old Drupal
+            targets = []
+            for (ci, port) in old_drupal_binds:
+                if ci not in ci_ec2instance_map: continue
+                if ci not in old_missing_cis: continue
+                targets.append('Id={0},Port={1}'.format( ci_ec2instance_map[ci], port ))
+            if len(targets) > 0:
+                cmd ='aws --profile site-dev --output text elbv2 deregister-targets --target-group-arn {0} --targets {1}'.format(drupal_targetgroup, ' '.join(targets))
+                print(cmd)
+                subprocess.call (cmd, shell=True)
+
+            #`Finish bringing up the site
+            # NOTE: The order (putting out of maintenance, and then cache-rebuild) seems backwards but
+            # let's follow the order in https://www.drupal.org/docs/8/update/update-procedure-in-drupal-8
+            # (perhaps cache-rebuild does more when out-of-maintenance)
 
             cmd = '{0} sset system.maintenance_mode 0'.format(drush)
             print('Running on the _new_ ECS host:\n  {0}'.format(cmd))
@@ -434,24 +524,33 @@ class ConfigMenu:
         if self.stacktype == 'network':
             creates.append(FunctionItem('Create new {0} stack'.format(self.stacktype), self.create_stack, [None, None]))
 
+        # find all the compute stacks ... even those that are in the middle of being deleted.
+        # if the user wants to 'Promote', then we must make sure everything is removed from the load balancer except the
+        # machines in the new stack
+        all_compute_stacks = None
+        if self.stacktype == 'compute':
+            all_compute_stacks = set()
+            for summ in list_stacks():
+                stack = summ["StackName"]
+    
+                # split out type, network id and possibly database id
+                (this_stacktype, this_network, this_database) = deconstruct_stack_name(stack)
+                # skip non-plainlychrist stacks
+                if this_stacktype is None: continue
+                # only want compute stacks
+                if this_stacktype == 'compute': all_compute_stacks.add(stack)
+
         # We cannot update with the stacks in some states, so filter by status
-        p = subprocess.Popen('aws --profile site-dev --output json --no-paginate cloudformation list-stacks --stack-status-filter CREATE_COMPLETE UPDATE_COMPLETE ROLLBACK_COMPLETE UPDATE_ROLLBACK_COMPLETE', shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
-        jsonstr = p.stdout.read()
-        output = json.loads(jsonstr)
-        for summ in output["StackSummaries"]:
+        for summ in list_stacks('CREATE_COMPLETE UPDATE_COMPLETE ROLLBACK_COMPLETE UPDATE_ROLLBACK_COMPLETE'):
             stack = summ["StackName"]
             status = summ["StackStatus"]
             ctime = summ["CreationTime"]
             descr = '{0} created {1}'.format(status, ctime)
 
-            m = re.match('pc-([a-z]+)-([0-9]+)(-([0-9]+))?', stack)
+            # split out type, network id and possibly database id
+            (this_stacktype, this_network, this_database) = deconstruct_stack_name(stack)
             # skip non-plainlychrist stacks
-            if m is None: continue
-
-            # capture network id and possibly database id
-            this_stacktype = m.group(1)
-            this_network = m.group(2)
-            this_database = m.group(4) # could be None
+            if this_stacktype is None: continue
 
             # create menus for creating a child of an ancestor
             if (self.stacktype == 'database' and this_stacktype == 'network') or (self.stacktype == 'compute' and this_stacktype == 'database'):
@@ -463,7 +562,7 @@ class ConfigMenu:
             others.append(FunctionItem('Create changeset for {0} stack: {1} ({2})'.format(self.stacktype, stack, descr), self.create_changeset_stack, [stack, this_network, this_database]))
             others.append(FunctionItem('Update {0} stack directly:      {1} ({2})'.format(self.stacktype, stack, descr), self.update_stack, [stack, this_network, this_database]))
             if self.stacktype == 'compute':
-                others.append(FunctionItem('Promote {0} stack:              {1} ({2})'.format(self.stacktype, stack, descr), self.promote_stack, [stack, this_network, this_database]))
+                others.append(FunctionItem('Promote {0} stack:              {1} ({2})'.format(self.stacktype, stack, descr), self.promote_compute_stack, [stack, all_compute_stacks, this_network, this_database]))
 
         items = creates + others
         for item in items: submenu.append_item(item)
@@ -505,13 +604,17 @@ if stacktype not in ["network", "database", "compute"]:
   print(usage)
   sys.exit(1)
 
-with open("cloudformation-{0}.yaml".format(stacktype), 'r') as cloudfile:
-    cloudcfg = yaml.load(cloudfile)
-    cloudparams = cloudcfg['Parameters']
+def main(stdscr):
+    with open("cloudformation-{0}.yaml".format(stacktype), 'r') as cloudfile:
+        cloudcfg = yaml.load(cloudfile)
+        cloudparams = cloudcfg['Parameters']
+    
+        preferencesfilename = expanduser("~/.plainlychrist.site-aws.yml")
+        with open(preferencesfilename, 'a'): # open for appending (so auto-create if necessary)
+          pass
+        with open(preferencesfilename, 'r+') as preferencesfile: # open for updating
+          config = ConfigMenu(preferencesfile, stacktype, cloudparams)
+          config.show()
 
-    preferencesfilename = expanduser("~/.plainlychrist.site-aws.yml")
-    with open(preferencesfilename, 'a'): # open for appending (so auto-create if necessary)
-      pass
-    with open(preferencesfilename, 'r+') as preferencesfile: # open for updating
-      config = ConfigMenu(preferencesfile, stacktype, cloudparams)
-      config.show()
+# be safe with curses terminal
+wrapper(main)
