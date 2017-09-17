@@ -1,0 +1,23 @@
+version: '2'
+services:
+  db:
+    image: mysql:5.6 # mimics recommendations for AWS RDS
+    environment:
+      - MYSQL_ROOT_PASSWORD
+      - MYSQL_DATABASE=drupal
+      - MYSQL_USER=drupal
+      - MYSQL_PASSWORD
+    ports:
+      - "3306:3306"
+  web:
+    image: plainlychrist/site-buildbarbuda:unstable
+    environment:
+      - MYSQL_DATABASE=drupal
+      - MYSQL_USER=drupal
+      - MYSQL_PASSWORD
+      - WEB_ADMIN_PASSWORD
+    command: ['--use-mysql', '--trust-this-ec2-host', '--trust-host-pattern', '^localhost$$']
+    ports:
+      - "443:443"
+    depends_on:
+      - db
