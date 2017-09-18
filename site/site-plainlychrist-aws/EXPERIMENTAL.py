@@ -10,9 +10,9 @@ This simplifies upgrading the site.
 # Configuring
 
 ```
-./conf.py network
-./conf.py database
-./conf.py compute
+./conf.py dev network
+./conf.py dev database
+./conf.py dev compute
 ```
 
 # PuTTY notes
@@ -20,7 +20,7 @@ This simplifies upgrading the site.
 You may have to run it with:
 
 ```
-env - TERM=linux ./conf.py network
+env - TERM=linux ./conf.py dev network
 ```
 
 to get the console working correctly.

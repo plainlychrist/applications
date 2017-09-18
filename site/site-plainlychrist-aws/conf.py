@@ -13,6 +13,9 @@ import json
 
 autogen_params = ['NetworkIdFromDatabaseId', 'NetworkId', 'DatabaseId', 'ModificationTimestamp']
 
+FLAVORSHORT = 'pc' # plainlychrist
+FLAVORLONG = 'plainlychrist'
+
 # import a text menu library
 try:
     from cursesmenu import CursesMenu
@@ -57,7 +60,7 @@ def rlinput(prompt, defaultval=''):
       readline.set_startup_hook()
 
 def deconstruct_stack_name(stack):
-    m = re.match('pc-([a-z]+)-([0-9]+)(-([0-9]+))?', stack)
+    m = re.match('{0}-([a-z]+)-([0-9]+)(-([0-9]+))?'.format(FLAVORSHORT), stack)
     # skip non-plainlychrist stacks
     if m is None: return (None, None, None)
 
@@ -169,7 +172,7 @@ class ConfigMenu:
         s = ' --parameters'
         s += self.form_params(network, database)
         s += ' --template-body "$(cat cloudformation-{0}.yaml)"'.format(self.stacktype)
-        s += ' --tags Key=plainlychrist:stacktype,Value={0}'.format(self.stacktype)
+        s += ' --tags Key={0}:stacktype,Value={1}'.format(FLAVORLONG, self.stacktype)
         return s
 
     def handle_menu_error(self):
@@ -198,7 +201,7 @@ class ConfigMenu:
                 ident = '{0}-{1}-{2:05d}'.format(network, database, random.randrange(0,100000))
             else:
                 raise Exception('Unrecognized stacktype {0}'.format(self.stacktype))
-            s += " --stack-name 'pc-{0}-{1}'".format(self.stacktype, ident)
+            s += " --stack-name '{0}-{1}-{2}'".format(FLAVORSHORT, self.stacktype, ident)
             s += self.common_stack_params(network, database)
             print(s)
             subprocess.call (s, shell=True)
@@ -243,7 +246,7 @@ class ConfigMenu:
 
         try:
             # find load balancer target groups for Redirect and Drupal
-            cmd ='aws --profile site-dev --no-paginate --output json cloudformation describe-stacks --stack-name pc-network-{0}'.format(network)
+            cmd ='aws --profile site-dev --no-paginate --output json cloudformation describe-stacks --stack-name {0}-network-{1}'.format(FLAVORSHORT, network)
             print(cmd)
             p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
             jsonstr = p.stdout.read()
@@ -260,7 +263,7 @@ class ConfigMenu:
             if drupal_targetgroup is None: raise Exception('No Drupal load balancer target group')
 
             # take all EC2 instances that share the Drupal database
-            cmd ='aws --profile site-dev --no-paginate --output json ec2 describe-instances --filters="Name=tag:plainlychrist:database-id,Values=pc-database-{0}-{1}"'.format(network, database)
+            cmd ='aws --profile site-dev --no-paginate --output json ec2 describe-instances --filters="Name=tag:{0}:database-id,Values={1}-database-{2}-{3}"'.format(FLAVORLONG, FLAVORSHORT, network, database)
             print(cmd)
             p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
             jsonstr = p.stdout.read()
@@ -271,6 +274,9 @@ class ConfigMenu:
             newhostnames = []
             for r in output["Reservations"]:
                 for i in r["Instances"]:
+                    pbdns = i["PublicDnsName"]
+                    if len(pbdns) == 0: continue # Likely not running
+
                     old = True
                     for t in i["Tags"]:
                         k = t["Key"]
@@ -279,9 +285,9 @@ class ConfigMenu:
                             old = False
                             break
                     if old:
-                        oldhostnames.append( i["PublicDnsName"] )
+                        oldhostnames.append(pbdns)
                     else:
-                        newhostnames.append( i["PublicDnsName"] )
+                        newhostnames.append(pbdns)
 
             if len(oldhostnames) == 0:
                 print('')
@@ -361,7 +367,7 @@ class ConfigMenu:
             print('----')
             print('1. You need the ECS private key in ~/.ssh/ecs-login-id_rsa for the following commands to work')
             print('2. You need: chmod 600 ~/.ssh/ecs-login-id_rsa')
-            print('3. Your security group for the EC2 instances needs to allow access from this machine OR ssh will hang for a while')
+            print('3. Your security group for the EC2 instances needs to allow access from this machine (try running: curl -s http://169.254.169.254/latest/meta-data/public-ipv4; echo) OR ssh will hang for a while')
             print('')
             if oldhostname is not None: print('We will be running commands on a random _old_ ECS host ({0})'.format(oldhostname))
             print('We will be running commands on a random _new_ ECS host ({0})'.format(newhostname))
@@ -392,7 +398,7 @@ class ConfigMenu:
         
                 print('')
                 print('----')
-                cmd = '{0} docker ps --filter status=running,label=com.amazonaws.ecs.container-name=site-web --format {1} | sort --random-sort | head -n1'.format(oldssh, '{{.ID}}')
+                cmd = '{0} docker ps --filter status=running --filter label=com.amazonaws.ecs.container-name=site-web --format {1} | sort --random-sort | head -n1'.format(oldssh, '{{.ID}}')
                 print('Finding a random site-web container on the _old_ ECS host:\n  {0}'.format(cmd))
         
                 p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
@@ -420,7 +426,7 @@ class ConfigMenu:
         
             print('')
             print('----')
-            cmd = '{0} docker ps --filter status=running,label=com.amazonaws.ecs.container-name=site-web --format {1} | sort --random-sort | head -n1'.format(newssh, '{{.ID}}')
+            cmd = '{0} docker ps --filter status=running --filter label=com.amazonaws.ecs.container-name=site-web --format {1} | sort --random-sort | head -n1'.format(newssh, '{{.ID}}')
             print('Finding a random site-web container on the _new_ ECS host:\n  {0}'.format(cmd))
     
             p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
@@ -570,12 +576,12 @@ class ConfigMenu:
 
     def item_save(self):
         # go back to beginning of file
-        preferencesfile.seek(0)
+        self.preferencesfile.seek(0)
         # save the YAML
-        yaml.dump(self.prefs, preferencesfile, default_flow_style=False)
+        yaml.dump(self.prefs, self.preferencesfile, default_flow_style=False)
         # make sure there is nothing left in the file after the YAML
-        preferencesfile.truncate()
-        preferencesfile.flush()
+        self.preferencesfile.truncate()
+        self.preferencesfile.flush()
 
     def show(self):
         menu = CursesMenu("plainlychrist.org AWS CloudFormation Main", show_exit_option = False)
@@ -595,11 +601,12 @@ class ConfigMenu:
 # main entry point
 
 # Handle command line arguments
-usage = 'usage: conf.py network|database|compute'
-if len(sys.argv) < 2:
+usage = 'usage: conf.py (dev|prod) network|database|compute'
+if len(sys.argv) < 3:
   print(usage)
   sys.exit(1)
-stacktype = sys.argv[1]
+stage = sys.argv[1]
+stacktype = sys.argv[2]
 if stacktype not in ["network", "database", "compute"]:
   print(usage)
   sys.exit(1)
@@ -609,7 +616,7 @@ def main(stdscr):
         cloudcfg = yaml.load(cloudfile)
         cloudparams = cloudcfg['Parameters']
     
-        preferencesfilename = expanduser("~/.plainlychrist.site-aws.yml")
+        preferencesfilename = expanduser("~/.plainlychrist.{0}.site-aws.yml".format(stage))
         with open(preferencesfilename, 'a'): # open for appending (so auto-create if necessary)
           pass
         with open(preferencesfilename, 'r+') as preferencesfile: # open for updating

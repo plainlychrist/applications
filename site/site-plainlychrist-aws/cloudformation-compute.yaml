@@ -103,8 +103,8 @@
       Default: "ecs-login"
     AsgMaxSize:
       Type: "Number"
-      Description: "Maximum size and initial Desired Capacity of ECS Auto Scaling Group"
-      Default: "1"
+      Description: "Maximum size and initial Desired Capacity of ECS Auto Scaling Group. If ECS desired services do not fit in the Auto Scaling Capacity, then ECS services will not be healthy and stuck with 'Pending' tasks"
+      Default: "2"
     IamRoleInstanceProfile:
       Type: "String"
       Description: "Name or the Amazon Resource Name (ARN) of the instance profile associated with the IAM role for the instance"
