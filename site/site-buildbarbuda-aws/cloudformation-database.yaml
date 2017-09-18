@@ -1,0 +1,260 @@
+---
+  # vim: autoindent smarttab tabstop=2 shiftwidth=2 expandtab softtabstop=2 filetype=yaml
+  # vim: set syntax=yaml:
+  AWSTemplateFormatVersion: "2010-09-09"
+  Description: "AWS CloudFormation template to create a database and shared filesystem for buildbarbuda.org"
+  Parameters:
+    NetworkId:
+      Description: "The 'ID' in bb-network-ID, which will be used to connect the database stack to the network stack"
+      Type: "String"
+      MinLength: 1
+      MaxLength: 10
+      AllowedPattern: "[0-9]+"
+    ModificationTimestamp:
+      Description: "The modification date of the stack, in ISO-8601 format"
+      Type: "String"
+      MinLength: 21
+      MaxLength: 21
+      AllowedPattern: "[0-9]{8}T[0-9]{12}"
+      ConstraintDescription: "must be ISO 8601 format, like 20170128T072603428619"
+    DrupalDBName:
+      Default: "drupal"
+      Description: "MySQL database name for Drupal"
+      Type: "String"
+      MinLength: "1"
+      MaxLength: "64"
+      AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*"
+      ConstraintDescription: "must begin with a letter and contain only alphanumeric characters."
+    DrupalDBUser:
+      Default: "drupal"
+      Description: "Username for MySQL database access by Drupal"
+      Type: "String"
+      MinLength: "1"
+      MaxLength: "16"
+      AllowedPattern: "[a-zA-Z][a-zA-Z0-9]*"
+      ConstraintDescription: "must begin with a letter and contain only alphanumeric characters."
+    DrupalDBPassword:
+      NoEcho: "true"
+      Description: "Password for MySQL database access by Drupal"
+      Type: "String"
+      MinLength: "8"
+      MaxLength: "41"
+      AllowedPattern: "[a-zA-Z0-9]*"
+      ConstraintDescription: "must be between 8 and 41 characters, and contain only alphanumeric characters."
+    DrupalDBAllocatedStorage:
+      Default: "5"
+      Description: "The size of the Drupal database (Gb)"
+      Type: "Number"
+      MinValue: "5"
+      MaxValue: "1024"
+      ConstraintDescription: "must be between 5 and 1024Gb."
+    DrupalDBInstanceClass:
+      Description: "The Drupal database instance type"
+      Type: "String"
+      Default: "db.t2.micro"
+      AllowedValues:
+        - "db.t1.micro"
+        - "db.m1.small"
+        - "db.m1.medium"
+        - "db.m1.large"
+        - "db.m1.xlarge"
+        - "db.m2.xlarge"
+        - "db.m2.2xlarge"
+        - "db.m2.4xlarge"
+        - "db.m3.medium"
+        - "db.m3.large"
+        - "db.m3.xlarge"
+        - "db.m3.2xlarge"
+        - "db.m4.large"
+        - "db.m4.xlarge"
+        - "db.m4.2xlarge"
+        - "db.m4.4xlarge"
+        - "db.m4.10xlarge"
+        - "db.r3.large"
+        - "db.r3.xlarge"
+        - "db.r3.2xlarge"
+        - "db.r3.4xlarge"
+        - "db.r3.8xlarge"
+        - "db.m2.xlarge"
+        - "db.m2.2xlarge"
+        - "db.m2.4xlarge"
+        - "db.cr1.8xlarge"
+        - "db.t2.micro"
+        - "db.t2.small"
+        - "db.t2.medium"
+        - "db.t2.large"
+      ConstraintDescription: "must select a valid database instance type."
+    DrupalMultiAZDatabase:
+      Default: "false"
+      Description: "Create a multi-AZ MySQL Amazon RDS database instance for Drupal"
+      Type: "String"
+      AllowedValues:
+        - "true"
+        - "false"
+      ConstraintDescription: "must be either true or false."
+    DrupalDBEngine:
+      Default: "MySQL"
+      Description: "The Drupal database engine (Aurora is a lower-cost MySQL-compatible RDS database engine for Multi-AZ)"
+      Type: "String"
+      AllowedValues:
+        - "Aurora"
+        - "MySQL"
+      ConstraintDescription: "must be either Aurora or MySQL."
+  Resources:
+    DrupalDbInstance:
+      Type: "AWS::RDS::DBInstance"
+      Properties:
+        DBSubnetGroupName:
+          Ref: "DbSubnetGroup"
+        Engine:
+          Ref: "DrupalDBEngine"
+        DBName:
+          Ref: "DrupalDBName"
+        MultiAZ:
+          Ref: "DrupalMultiAZDatabase"
+        MasterUsername:
+          Ref: "DrupalDBUser"
+        MasterUserPassword:
+          Ref: "DrupalDBPassword"
+        DBInstanceClass:
+          Ref: "DrupalDBInstanceClass"
+        AllocatedStorage:
+          Ref: "DrupalDBAllocatedStorage"
+        VPCSecurityGroups:
+          -
+            "Fn::ImportValue": !Join [ "", [ "bb-network-", !Ref "NetworkId", "-DrupalDbSecurityGroup" ] ]
+      Metadata:
+        AWS::CloudFormation::Designer:
+          id: "97750b54-3b05-4dd9-b05a-6303bb3ca158"
+    DbSubnetGroup:
+      Type: "AWS::RDS::DBSubnetGroup"
+      Properties:
+        DBSubnetGroupDescription: "RDS DB subnet group"
+        SubnetIds:
+          - "Fn::ImportValue": !Join [ "", [ "bb-network-", !Ref "NetworkId", "-PrvSubnetAz1" ] ]
+          - "Fn::ImportValue": !Join [ "", [ "bb-network-", !Ref "NetworkId", "-PrvSubnetAz2" ] ]
+      Metadata:
+        AWS::CloudFormation::Designer:
+          id: "2f4913c4-a2a3-4f68-96ea-82af38484970"
+    DrupalFilesFileSystem:
+      Type: AWS::EFS::FileSystem
+      Properties:
+        PerformanceMode: generalPurpose
+        FileSystemTags:
+        - Key: Name
+          Value:
+            Fn::Join:
+              - ""
+              -
+                - "Drupal sites/default/files EFS FileSystem - "
+                -
+                  Ref: "AWS::StackName"
+    MountTargetAz1:
+      Type: AWS::EFS::MountTarget
+      Properties:
+        FileSystemId:
+          Ref: DrupalFilesFileSystem
+        SubnetId:
+          "Fn::ImportValue": !Join [ "", [ "bb-network-", !Ref "NetworkId", "-PubSubnetAz1" ] ]
+        SecurityGroups:
+        - "Fn::ImportValue": !Join [ "", [ "bb-network-", !Ref "NetworkId", "-DrupalFilesMountTargetSecurityGroup" ] ]
+    MountTargetAz2:
+      Type: AWS::EFS::MountTarget
+      Properties:
+        FileSystemId:
+          Ref: DrupalFilesFileSystem
+        SubnetId:
+          "Fn::ImportValue": !Join [ "", [ "bb-network-", !Ref "NetworkId", "-PubSubnetAz2" ] ]
+        SecurityGroups:
+        - "Fn::ImportValue": !Join [ "", [ "bb-network-", !Ref "NetworkId", "-DrupalFilesMountTargetSecurityGroup" ] ]
+    DrupalDbInstance:
+      Type: "AWS::RDS::DBInstance"
+      Properties:
+        DBSubnetGroupName:
+          Ref: "DbSubnetGroup"
+        Engine:
+          Ref: "DrupalDBEngine"
+        DBName:
+          Ref: "DrupalDBName"
+        MultiAZ:
+          Ref: "DrupalMultiAZDatabase"
+        MasterUsername:
+          Ref: "DrupalDBUser"
+        MasterUserPassword:
+          Ref: "DrupalDBPassword"
+        DBInstanceClass:
+          Ref: "DrupalDBInstanceClass"
+        AllocatedStorage:
+          Ref: "DrupalDBAllocatedStorage"
+        VPCSecurityGroups:
+          -
+            "Fn::ImportValue": !Join [ "", [ "bb-network-", !Ref "NetworkId", "-DrupalDbSecurityGroup" ] ]
+      Metadata:
+        AWS::CloudFormation::Designer:
+          id: "97750b54-3b05-4dd9-b05a-6303bb3ca158"
+    DbSubnetGroup:
+      Type: "AWS::RDS::DBSubnetGroup"
+      Properties:
+        DBSubnetGroupDescription: "RDS DB subnet group"
+        SubnetIds:
+          - "Fn::ImportValue": !Join [ "", [ "bb-network-", !Ref "NetworkId", "-PrvSubnetAz1" ] ]
+          - "Fn::ImportValue": !Join [ "", [ "bb-network-", !Ref "NetworkId", "-PrvSubnetAz2" ] ]
+      Metadata:
+        AWS::CloudFormation::Designer:
+          id: "2f4913c4-a2a3-4f68-96ea-82af38484970"
+    DrupalFilesFileSystem:
+      Type: AWS::EFS::FileSystem
+      Properties:
+        PerformanceMode: generalPurpose
+        FileSystemTags:
+        - Key: Name
+          Value:
+            Fn::Join:
+              - ""
+              -
+                - "Drupal sites/default/files EFS FileSystem - "
+                -
+                  Ref: "AWS::StackName"
+    MountTargetAz1:
+      Type: AWS::EFS::MountTarget
+      Properties:
+        FileSystemId:
+          Ref: DrupalFilesFileSystem
+        SubnetId:
+          "Fn::ImportValue": !Join [ "", [ "bb-network-", !Ref "NetworkId", "-PubSubnetAz1" ] ]
+        SecurityGroups:
+        - "Fn::ImportValue": !Join [ "", [ "bb-network-", !Ref "NetworkId", "-DrupalFilesMountTargetSecurityGroup" ] ]
+    MountTargetAz2:
+      Type: AWS::EFS::MountTarget
+      Properties:
+        FileSystemId:
+          Ref: DrupalFilesFileSystem
+        SubnetId:
+          "Fn::ImportValue": !Join [ "", [ "bb-network-", !Ref "NetworkId", "-PubSubnetAz2" ] ]
+        SecurityGroups:
+        - "Fn::ImportValue": !Join [ "", [ "bb-network-", !Ref "NetworkId", "-DrupalFilesMountTargetSecurityGroup" ] ]
+  Outputs:
+    DrupalDbInstanceAddress:
+      Description: "The address of the Drupal database instance"
+      Value:
+        "Fn::GetAtt": [ "DrupalDbInstance",  "Endpoint.Address" ]
+      Export:
+        Name: !Join ["", [ !Ref "AWS::StackName", "-DrupalDbInstance-Address" ]]
+    DrupalDbInstancePort:
+      Description: "The port of the Drupal database instance"
+      Value:
+        "Fn::GetAtt": [ "DrupalDbInstance",  "Endpoint.Port" ]
+      Export:
+        Name: !Join ["", [ !Ref "AWS::StackName", "-DrupalDbInstance-Port" ]]
+    DrupalDbName:
+      Description: "The Drupal database name"
+      Value: !Ref "DrupalDBName"
+      Export:
+        Name: !Join ["", [ !Ref "AWS::StackName", "-DrupalDbName" ]]
+    DrupalFilesFileSystem:
+      Description: "The NFS shared filesystem for Drupal files"
+      Value: !Ref "DrupalFilesFileSystem"
+      Export:
+        Name: !Join ["", [ !Ref "AWS::StackName", "-DrupalFilesFileSystem" ]]
+    # We should never export credentials. This is similar to the best practice http://docs.aws.amazon.com/AWSCloudFormation/latest/UserGuide/best-practices.html#creds
+    # So *don't* export DrupalDbUser and DrupalDbPassword (besides, they are likely to change)
