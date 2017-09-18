@@ -146,7 +146,7 @@
             Fn::Join:
               - ""
               -
-                - "Drupal sites/default/files EFS FileSystem - "
+                - "Drupal shared files EFS FileSystem - "
                 -
                   Ref: "AWS::StackName"
     MountTargetAz1:
