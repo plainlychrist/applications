@@ -55,6 +55,19 @@
       MaxLength: "41"
       AllowedPattern: "[a-zA-Z0-9]*"
       ConstraintDescription: "must be between 8 and 41 characters, and contain only alphanumeric characters."
+    EmailDomain:
+      Description: "Domain for Drupal sender email account, which is the part after the @ in an email address"
+      Type: "String"
+    SmtpHost:
+      Description: "SMTP hostname for sending email"
+      Type: "String"
+    EmailUser:
+      Description: "Username for Drupal sender email account"
+      Type: "String"
+    EmailPassword:
+      NoEcho: "true"
+      Description: "Password for Drupal sender email account"
+      Type: "String"
     EcsAmiId:
       Type: "String"
       Description: "ECS AMI Id"
@@ -441,6 +454,22 @@
                 Name: "WEB_ADMIN_PASSWORD"
                 Value:
                   Ref: "WebAdminPassword"
+              -
+                Name: "POSTFIX_DOMAIN"
+                Value:
+                  Ref: "EmailDomain"
+              -
+                Name: "POSTFIX_RELAY_HOST"
+                Value:
+                  Ref: "SmtpHost"
+              -
+                Name: "POSTFIX_USER"
+                Value:
+                  Ref: "EmailUser"
+              -
+                Name: "POSTFIX_PASSWORD"
+                Value:
+                  Ref: "EmailPassword"
             Image: "plainlychrist/site-buildbarbuda:unstable"
             Command:
               # hash salt
@@ -463,6 +492,7 @@
                     - "Fn::ImportValue": !Join [ "", [ "bb-network-", !Ref "NetworkIdFromDatabaseId", "-ElbDnsName" ] ]
                     - "$"
               - "--use-mysql"
+              - "--use-postfix"
         Volumes:
           -
             # share /var/www/html/site/default/files on the EFS mount
