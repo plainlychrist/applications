@@ -313,6 +313,8 @@ class ConfigMenu:
             newhostname = random.choice(newhostnames) if len(newhostnames) > 0 else None
             oldssh = 'ssh -i ~/.ssh/ecs-login-id_rsa -l ec2-user {0}'.format(oldhostname)
             newssh = 'ssh -i ~/.ssh/ecs-login-id_rsa -l ec2-user {0}'.format(newhostname)
+            oldsshinteractive = 'ssh -t -i ~/.ssh/ecs-login-id_rsa -l ec2-user {0}'.format(oldhostname)
+            newsshinteractive = 'ssh -t -i ~/.ssh/ecs-login-id_rsa -l ec2-user {0}'.format(newhostname)
 
             all_cis = set()
 
@@ -403,7 +405,7 @@ class ConfigMenu:
         
                 p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
                 webid = p.stdout.read().rstrip()
-                drush = '{0} docker exec {1} runuser -u drupaladmin /home/drupaladmin/bin/drush'.format(oldssh, webid)
+                drush = '{0} docker exec -it {1} runuser -u drupaladmin /home/drupaladmin/bin/drush'.format(oldsshinteractive, webid)
         
                 print('')
                 print('----')
@@ -431,7 +433,7 @@ class ConfigMenu:
     
             p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
             webid = p.stdout.read().rstrip()
-            drush = '{0} docker exec {1} runuser -u drupaladmin /home/drupaladmin/bin/drush'.format(newssh, webid)
+            drush = '{0} docker exec -it {1} runuser -u drupaladmin /home/drupaladmin/bin/drush'.format(newsshinteractive, webid)
     
             print('')
             print('----')
