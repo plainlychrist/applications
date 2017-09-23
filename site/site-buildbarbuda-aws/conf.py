@@ -71,16 +71,18 @@ def deconstruct_stack_name(stack):
 
     return (this_stacktype, this_network, this_database)
 
-def list_stacks(filters=None):
+def list_stacks(stage, filters=None):
     args = '' if filters is None else '--stack-status-filter {0}'.format(filters)
-    p = subprocess.Popen('aws --profile site-dev --output json --no-paginate cloudformation list-stacks {0}'.format(args), shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+    cmd = 'aws --profile site-{} --output json --no-paginate cloudformation list-stacks {}'.format(stage, args)
+    print(cmd)
+    p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
     jsonstr = p.stdout.read()
     output = json.loads(jsonstr)
     return output["StackSummaries"]
 
-def acquire_compute_bindings(stack, family, cis):
+def acquire_compute_bindings(stage, stack, family, cis):
     # find all the new tasks for the Family
-    cmd ='aws --profile site-dev --no-paginate --output json ecs list-tasks --cluster {0} --family {0}-{1}'.format(stack,family)
+    cmd ='aws --profile site-{0} --no-paginate --output json ecs list-tasks --cluster {1} --family {1}-{2}'.format(stage,stack,family)
     print(cmd)
     p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
     jsonstr = p.stdout.read()
@@ -91,7 +93,7 @@ def acquire_compute_bindings(stack, family, cis):
     if tasks is None or len(tasks) == 0: return binds
 
     # find out the bindings for the tasks
-    cmd ='aws --profile site-dev --no-paginate --output json ecs describe-tasks --cluster {0} --tasks {1}'.format(stack,' '.join(tasks))
+    cmd ='aws --profile site-{0} --no-paginate --output json ecs describe-tasks --cluster {1} --tasks {2}'.format(stage,stack,' '.join(tasks))
     print(cmd)
     p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
     jsonstr = p.stdout.read()
@@ -110,7 +112,8 @@ class ConfigMenu:
     Configuration menu
     """
 
-    def __init__(self, preferencesfile, stacktype, cloudparams):
+    def __init__(self, preferencesfile, stage, stacktype, cloudparams):
+        self.stage = stage
         self.stacktype = stacktype
         self.prefs = yaml.safe_load(preferencesfile)
         if self.prefs is None:
@@ -184,7 +187,7 @@ class ConfigMenu:
 
     def create_stack(self, network, database):
         try:
-            s = 'aws --profile site-dev --output text cloudformation create-stack'
+            s = 'aws --profile site-{} --output text cloudformation create-stack'.format(self.stage)
             if self.stacktype == 'network':
                 ident = '{0:05d}'.format(random.randrange(0,100000))
             elif self.stacktype == 'database':
@@ -214,7 +217,7 @@ class ConfigMenu:
     def create_changeset_stack(self, stack, network, database):
         try:
             changets = datetime.utcnow().isoformat('T').translate(str.maketrans('', '', ':-.'))
-            s = 'aws --profile site-dev --output text cloudformation create-change-set'
+            s = 'aws --profile site-{} --output text cloudformation create-change-set'.format(self.stage)
             s += " --stack-name '{0}'".format(stack)
             s += " --change-set-name '{0}-{1}'".format(stack, changets)
             s += self.common_stack_params(network, database)
@@ -227,7 +230,7 @@ class ConfigMenu:
 
     def update_stack(self, stack, network, database):
         try:
-            s = 'aws --profile site-dev --output text cloudformation update-stack'
+            s = 'aws --profile site-{} --output text cloudformation update-stack'.format(self.stage)
             s += " --stack-name '{0}'".format(stack)
             s += self.common_stack_params(network, database)
             print(s)
@@ -246,7 +249,7 @@ class ConfigMenu:
 
         try:
             # find load balancer target groups for Redirect and Drupal
-            cmd ='aws --profile site-dev --no-paginate --output json cloudformation describe-stacks --stack-name {0}-network-{1}'.format(FLAVORSHORT, network)
+            cmd ='aws --profile site-{} --no-paginate --output json cloudformation describe-stacks --stack-name {}-network-{}'.format(self.stage, FLAVORSHORT, network)
             print(cmd)
             p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
             jsonstr = p.stdout.read()
@@ -263,7 +266,7 @@ class ConfigMenu:
             if drupal_targetgroup is None: raise Exception('No Drupal load balancer target group')
 
             # take all EC2 instances that share the Drupal database
-            cmd ='aws --profile site-dev --no-paginate --output json ec2 describe-instances --filters="Name=tag:{0}:database-id,Values={1}-database-{2}-{3}"'.format(FLAVORLONG, FLAVORSHORT, network, database)
+            cmd ='aws --profile site-{} --no-paginate --output json ec2 describe-instances --filters="Name=tag:{}:database-id,Values={}-database-{}-{}"'.format(self.stage, FLAVORLONG, FLAVORSHORT, network, database)
             print(cmd)
             p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
             jsonstr = p.stdout.read()
@@ -311,24 +314,24 @@ class ConfigMenu:
     
             oldhostname = random.choice(oldhostnames) if len(oldhostnames) > 0 else None
             newhostname = random.choice(newhostnames) if len(newhostnames) > 0 else None
-            oldssh = 'ssh -i ~/.ssh/ecs-login-id_rsa -l ec2-user {0}'.format(oldhostname)
-            newssh = 'ssh -i ~/.ssh/ecs-login-id_rsa -l ec2-user {0}'.format(newhostname)
-            oldsshinteractive = 'ssh -t -i ~/.ssh/ecs-login-id_rsa -l ec2-user {0}'.format(oldhostname)
-            newsshinteractive = 'ssh -t -i ~/.ssh/ecs-login-id_rsa -l ec2-user {0}'.format(newhostname)
+            oldssh = 'ssh -i ~/.ssh/ecs-login-{}-id_rsa -l ec2-user {}'.format(self.stage,oldhostname)
+            newssh = 'ssh -i ~/.ssh/ecs-login-{}-id_rsa -l ec2-user {}'.format(self.stage,newhostname)
+            oldsshinteractive = 'ssh -t -i ~/.ssh/ecs-login-{}-id_rsa -l ec2-user {}'.format(self.stage,oldhostname)
+            newsshinteractive = 'ssh -t -i ~/.ssh/ecs-login-{}-id_rsa -l ec2-user {}'.format(self.stage,newhostname)
 
             all_cis = set()
 
             # find what we should bind for Drupal and Redirect family of tasks
-            new_redirect_binds = acquire_compute_bindings(stack, 'Redirect', all_cis)
-            new_drupal_binds = acquire_compute_bindings(stack, 'Drupal', all_cis)
+            new_redirect_binds = acquire_compute_bindings(self.stage, stack, 'Redirect', all_cis)
+            new_drupal_binds = acquire_compute_bindings(self.stage, stack, 'Drupal', all_cis)
 
             # find the old binds (the task bindings for all other stacks that share the network+database _except_ 'stack')
             old_stacks = {s for s in all_compute_stacks if s != stack and deconstruct_stack_name(s)[1] == network and deconstruct_stack_name(s)[2] == database}
             old_redirect_binds = set()
             old_drupal_binds = set()
             for old_stack in old_stacks:
-                old_redirect_binds = old_redirect_binds | acquire_compute_bindings(old_stack, 'Redirect', all_cis)
-                old_drupal_binds = old_drupal_binds | acquire_compute_bindings(old_stack, 'Drupal', all_cis)
+                old_redirect_binds = old_redirect_binds | acquire_compute_bindings(self.stage, old_stack, 'Redirect', all_cis)
+                old_drupal_binds = old_drupal_binds | acquire_compute_bindings(self.stage, old_stack, 'Drupal', all_cis)
             print('')
             print('Old stacks: ', old_stacks)
             print('New stack: ', stack)
@@ -341,7 +344,7 @@ class ConfigMenu:
             input('Press Enter to proceed ... ')
 
             # resolve all the container instances
-            cmd ='aws --profile site-dev --no-paginate --output json ecs describe-container-instances --cluster {0} --container-instances {1}'.format(stack, ' '.join(all_cis))
+            cmd ='aws --profile site-{} --no-paginate --output json ecs describe-container-instances --cluster {} --container-instances {}'.format(self.stage, stack, ' '.join(all_cis))
             print(cmd)
             p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
             jsonstr = p.stdout.read()
@@ -367,8 +370,8 @@ class ConfigMenu:
             print('')
             print('INSTRUCTIONS')
             print('----')
-            print('1. You need the ECS private key in ~/.ssh/ecs-login-id_rsa for the following commands to work')
-            print('2. You need: chmod 600 ~/.ssh/ecs-login-id_rsa')
+            print('1. You need the ECS private key in ~/.ssh/ecs-login-{}.id_rsa for the following commands to work'.format(self.stage))
+            print('2. You need: chmod 600 ~/.ssh/ecs-login-{}-id_rsa'.format(self.stage))
             print('3. Your security group for the EC2 instances needs to allow access from this machine (try running: curl -s http://169.254.169.254/latest/meta-data/public-ipv4; echo) OR ssh will hang for a while')
             print('')
             if oldhostname is not None: print('We will be running commands on a random _old_ ECS host ({0})'.format(oldhostname))
@@ -462,7 +465,7 @@ class ConfigMenu:
             targets = []
             for ci_port in new_redirect_binds:
                 targets.append('Id={0},Port={1}'.format( ci_ec2instance_map[ci_port[0]], ci_port[1] ))
-            cmd ='aws --profile site-dev --output text elbv2 register-targets --target-group-arn {0} --targets {1}'.format(redirect_targetgroup, ' '.join(targets))
+            cmd ='aws --profile site-{} --output text elbv2 register-targets --target-group-arn {} --targets {}'.format(self.stage, redirect_targetgroup, ' '.join(targets))
             print(cmd)
             subprocess.call (cmd, shell=True)
 
@@ -470,7 +473,7 @@ class ConfigMenu:
             targets = []
             for ci_port in new_drupal_binds:
                 targets.append('Id={0},Port={1}'.format( ci_ec2instance_map[ci_port[0]], ci_port[1] ))
-            cmd ='aws --profile site-dev --output text elbv2 register-targets --target-group-arn {0} --targets {1}'.format(drupal_targetgroup, ' '.join(targets))
+            cmd ='aws --profile site-{} --output text elbv2 register-targets --target-group-arn {} --targets {}'.format(self.stage, drupal_targetgroup, ' '.join(targets))
             print(cmd)
             subprocess.call (cmd, shell=True)
 
@@ -481,7 +484,7 @@ class ConfigMenu:
                 if ci not in old_missing_cis: continue
                 targets.append('Id={0},Port={1}'.format( ci_ec2instance_map[ci], port ))
             if len(targets) > 0:
-                cmd ='aws --profile site-dev --output text elbv2 deregister-targets --target-group-arn {0} --targets {1}'.format(redirect_targetgroup, ' '.join(targets))
+                cmd ='aws --profile site-{} --output text elbv2 deregister-targets --target-group-arn {} --targets {}'.format(self.stage, redirect_targetgroup, ' '.join(targets))
                 print(cmd)
                 subprocess.call (cmd, shell=True)
 
@@ -492,7 +495,7 @@ class ConfigMenu:
                 if ci not in old_missing_cis: continue
                 targets.append('Id={0},Port={1}'.format( ci_ec2instance_map[ci], port ))
             if len(targets) > 0:
-                cmd ='aws --profile site-dev --output text elbv2 deregister-targets --target-group-arn {0} --targets {1}'.format(drupal_targetgroup, ' '.join(targets))
+                cmd ='aws --profile site-{} --output text elbv2 deregister-targets --target-group-arn {} --targets {}'.format(self.stage, drupal_targetgroup, ' '.join(targets))
                 print(cmd)
                 subprocess.call (cmd, shell=True)
 
@@ -538,7 +541,7 @@ class ConfigMenu:
         all_compute_stacks = None
         if self.stacktype == 'compute':
             all_compute_stacks = set()
-            for summ in list_stacks():
+            for summ in list_stacks(self.stage):
                 stack = summ["StackName"]
     
                 # split out type, network id and possibly database id
@@ -549,7 +552,7 @@ class ConfigMenu:
                 if this_stacktype == 'compute': all_compute_stacks.add(stack)
 
         # We cannot update with the stacks in some states, so filter by status
-        for summ in list_stacks('CREATE_COMPLETE UPDATE_COMPLETE ROLLBACK_COMPLETE UPDATE_ROLLBACK_COMPLETE'):
+        for summ in list_stacks(self.stage, 'CREATE_COMPLETE UPDATE_COMPLETE ROLLBACK_COMPLETE UPDATE_ROLLBACK_COMPLETE'):
             stack = summ["StackName"]
             status = summ["StackStatus"]
             ctime = summ["CreationTime"]
@@ -622,7 +625,7 @@ def main(stdscr):
         with open(preferencesfilename, 'a'): # open for appending (so auto-create if necessary)
           pass
         with open(preferencesfilename, 'r+') as preferencesfile: # open for updating
-          config = ConfigMenu(preferencesfile, stacktype, cloudparams)
+          config = ConfigMenu(preferencesfile, stage, stacktype, cloudparams)
           config.show()
 
 # be safe with curses terminal

@@ -113,7 +113,7 @@
     KeyName:
       Type: "String"
       Description: "Optional - Name of an existing EC2 KeyPair to enable SSH access to the ECS instances"
-      Default: "ecs-login"
+      Default: "ecs-login-dev"
     AsgMaxSize:
       Type: "Number"
       Description: "Maximum size and initial Desired Capacity of ECS Auto Scaling Group. If ECS desired services do not fit in the Auto Scaling Capacity, then ECS services will not be healthy and stuck with 'Pending' tasks"

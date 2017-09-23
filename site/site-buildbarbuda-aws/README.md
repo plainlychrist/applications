@@ -21,7 +21,7 @@ For example, in this directory run the following after setting `MY_IP` and `ECS_
 ```bash
 MY_IP=50.46.233.3
 ECS_AMI_ID=ami-1d668865
-SSH_KEY_NAME=ecs-login
+SSH_KEY_NAME=ecs-login-dev
 
 sudo yum install expect
 
