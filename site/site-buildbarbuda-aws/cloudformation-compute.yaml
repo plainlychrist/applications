@@ -461,6 +461,9 @@
               -
                 ContainerPath: /var/ngx_pagespeed_cache
                 SourceVolume: var-ngx_pagespeed_cache
+              -
+                ContainerPath: /var/lib/site/storage-config
+                SourceVolume: var-lib-site-storage-config
             Name: "site-buildbarbuda"
             Environment:
               -
@@ -537,6 +540,11 @@
             Host:
               SourcePath: "/mnt/site-shared-drupal-files/var-ngx_pagespeed_cache"
             Name: var-ngx_pagespeed_cache
+          -
+            # share /var/lib/site/storage-config on the EFS mount
+            Host:
+              SourcePath: "/mnt/site-shared-drupal-files/var-lib-site-storage-config"
+            Name: var-lib-site-storage-config
     EcsRedirectService:
       Type: "AWS::ECS::Service"
       Properties:
