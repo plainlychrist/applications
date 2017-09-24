@@ -110,6 +110,10 @@
         - "i2.4xlarge"
         - "i2.8xlarge"
       ConstraintDescription: "must be a valid EC2 instance type."
+    BackupToDev:
+      Type: "String"
+      Description: "Optional - When 'true', a backup will be taken daily between 01:00 and 06:00 UTC"
+      Default: "false"
     KeyName:
       Type: "String"
       Description: "Optional - Name of an existing EC2 KeyPair to enable SSH access to the ECS instances"
@@ -181,6 +185,32 @@
                         "Fn::ImportValue": !Join [ "", [ "bb-database-", !Ref "DatabaseId", "-DrupalFilesFileSystem" ] ]
           setupPostDocker:
             files:
+              "/home/ec2-user/backup_drupal":
+                content:
+                  "Fn::Sub":
+                    - |
+                      #!/bin/bash
+                      set -euf -o pipefail
+                      if [[ "${BackupToDev}" != "true" ]]; then exit 0; fi
+                      echo
+                      echo "------------------------"
+                      echo "Starting backup at $(date)"
+                      export PATH="/usr/local/bin:$PATH" # /usr/local/bin/aws
+                      CONTAINER=$(docker ps -f  name=site-buildbarbuda --format "{{.ID}}" | awk 'NR==1{print}')
+                      INSTANCEID=$(curl -s http://169.254.169.254/latest/meta-data/instance-id)
+                      docker exec "$CONTAINER" runuser -s /bin/bash -c "cd /var/www/html && /home/drupaladmin/bin/drush archive-dump @sites --overwrite '--destination=/home/drupaladmin/drush-backups/archive-dump/transit/${AWS::StackName}-${AWS::AccountId}-$INSTANCEID.tar.gz'" - drupaladmin
+                      cd /home/ec2-user
+                      rm -rf transit/
+                      docker cp "$CONTAINER:/home/drupaladmin/drush-backups/archive-dump/transit/" .
+                      aws s3 cp --dryrun --recursive transit/ s3://prod-backups.dev.us-east-1.buildbarbuda/
+                      # id=dc... is the canonical id for Site Dev (the bucket owner of s3://prod-backups.dev.us-east-1.buildbarbuda)
+                      aws s3 cp --only-show-errors --storage-class STANDARD_IA --grants full=id=dc9cacc8ec98d1f1b8b3c06e6f922a3d22a89b44da7b2da1044330b38d76a7f5 --recursive transit/ s3://prod-backups.dev.us-east-1.buildbarbuda/
+                      echo "Completed backup at $(date)"
+                    - { BackupToDev: !Ref "BackupToDev" }
+                mode: '000755'
+                owner: ec2-user
+                group: ec2-user
+
               "/home/ec2-user/post_nfsstat":
                 content: !Sub |
                   #!/bin/bash
@@ -246,7 +276,10 @@
                 owner: ec2-user
                 group: ec2-user
               "/home/ec2-user/crontab":
-                content: "* * * * * /usr/sbin/nfsstat | /home/ec2-user/post_nfsstat >> /tmp/post_nfsstat.log 2>&1\n"
+                content: !Sub |
+                  * * * * * /usr/sbin/nfsstat | /home/ec2-user/post_nfsstat >> /tmp/post_nfsstat.log 2>&1
+                  # Starting at 01:00 UTC, jitter sleep for 0 - 5 hours (32768/2 seconds) and then backup
+                  0 1 * * * sleep $((RANDOM/2)) ; /home/ec2-user/backup_drupal >> /tmp/backup_drupal.log 2>&1
                 owner: ec2-user
                 group: ec2-user
           finishPostDocker:
@@ -254,7 +287,7 @@
               01_permissions:
                 command: !Sub "chown ec2-user:ec2-user /mnt/site-shared-drupal-files"
               02_cron:
-                command: !Sub "crontab /home/ec2-user/crontab"
+                command: !Sub "crontab -u ec2-user /home/ec2-user/crontab"
     EcsInstanceLc:
       Condition: "CreateEC2LCWithKeyPair"
       Type: "AWS::AutoScaling::LaunchConfiguration"
