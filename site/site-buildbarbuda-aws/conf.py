@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-# vim: autoindent smarttab tabstop=4 shiftwidth=4 expandtab softtabstop=4 filetype=python
+# vim: autoindent smarttab tabstop=4 shiftwidth=4 expandtab softtabstop=4 filetype=python:
 import sys, traceback
 import readline
 from os.path import expanduser
@@ -106,6 +106,14 @@ def acquire_compute_bindings(stage, stack, family, cis):
             for n in c['networkBindings']:
                 binds.add( (ci, n['hostPort']) )
     return binds
+
+def describe_instances(stage, network, database):
+    # take all EC2 instances that share the Drupal database
+    cmd ='aws --profile site-{} --no-paginate --output json ec2 describe-instances --filters="Name=tag:{}:database-id,Values={}-database-{}-{}"'.format(stage, FLAVORLONG, FLAVORSHORT, network, database)
+    print(cmd)
+    p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+    jsonstr = p.stdout.read()
+    return json.loads(jsonstr)
 
 class ConfigMenu:
     """
@@ -240,6 +248,71 @@ class ConfigMenu:
             self.handle_menu_error()
             raise
 
+    def mark_compute_stack(self, stack, network, database):
+        try:
+            # find all EC2 instances that share the Drupal database
+            output = describe_instances(self.stage, network, database)
+
+            thehostnames = []
+            for r in output["Reservations"]:
+                for i in r["Instances"]:
+                    pbdns = i["PublicDnsName"]
+                    if len(pbdns) == 0: continue # Likely not running
+                    thehostnames.append(pbdns)
+
+            if len(thehostnames) == 0:
+                print('')
+                print('ERROR')
+                print('----')
+                print('')
+                print('We did not find a host within the compute stack (we found {0})'.format(thehostnames))
+                print('')
+                input('Press Enter to leave ... ')
+                return
+
+            thehostname = random.choice(thehostnames)
+            thessh = 'ssh -i ~/.ssh/ecs-login-{}-id_rsa -l ec2-user {}'.format(self.stage,thehostname)
+
+            print('')
+            print('----')
+            cmd = '{0} uptime'.format(thessh, '{{.ID}}')
+            print('Running on the ECS host ... to get rid of any SSH unknown host warnings:\n  {0}'.format(cmd))
+            subprocess.call (cmd, shell=True)
+
+            print('')
+            print('----')
+            cmd = '{0} docker ps --filter status=running --filter label=com.amazonaws.ecs.container-name=site-buildbarbuda --format {1} | sort --random-sort | head -n1'.format(thessh, '{{.ID}}')
+            print('Finding a random site-buildbarbuda container on the ECS host:\n  {0}'.format(cmd))
+            p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+            webid = p.stdout.read().rstrip()
+            drush = '{0} docker exec {1} runuser -u drupaladmin /home/drupaladmin/bin/drush'.format(thessh, webid)
+
+            print('')
+            print('----')
+            print('Found Docker container id {0} for site-buildbarbuda'.format(webid))
+
+            cmd = '{0} sql-query \'"DROP TABLE site_phase1"\''.format(drush)
+            print('Running on the ECS host:\n  {0}'.format(cmd))
+            subprocess.call (cmd, shell=True)
+
+            cmd = '{0} sql-query \'"DROP TABLE site_phase2"\''.format(drush)
+            print('Running on the ECS host:\n  {0}'.format(cmd))
+            subprocess.call (cmd, shell=True)
+
+            print('')
+            print('----')
+            print('')
+
+            cmd = '{0} sql-query \'"SHOW TABLES"\' | grep -i ^site'.format(drush)
+            print('Running on the ECS host:\n  {0}'.format(cmd))
+            subprocess.call (cmd, shell=True)
+
+            print('')
+            input('Verify that you do NOT see site_phase* tables above. Then press Enter to proceed ... ')
+        except:
+            self.handle_menu_error()
+            raise
+
     def promote_compute_stack(self, stack, all_compute_stacks, network, database):
         '''
         Follow the steps in site-buildbarbuda/docs/DESIGN-UPDATE.md
@@ -265,13 +338,9 @@ class ConfigMenu:
             if redirect_targetgroup is None: raise Exception('No Redirect load balancer target group')
             if drupal_targetgroup is None: raise Exception('No Drupal load balancer target group')
 
-            # take all EC2 instances that share the Drupal database
-            cmd ='aws --profile site-{} --no-paginate --output json ec2 describe-instances --filters="Name=tag:{}:database-id,Values={}-database-{}-{}"'.format(self.stage, FLAVORLONG, FLAVORSHORT, network, database)
-            print(cmd)
-            p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
-            jsonstr = p.stdout.read()
-            output = json.loads(jsonstr)
-    
+            # find all EC2 instances that share the Drupal database
+            output = describe_instances(self.stage, network, database)
+
             # split into old and new hostname ... based on which compute stack they belong to
             oldhostnames = []
             newhostnames = []
@@ -311,7 +380,7 @@ class ConfigMenu:
                 print('')
                 input('Press Enter to leave ... ')
                 return
-    
+
             oldhostname = random.choice(oldhostnames) if len(oldhostnames) > 0 else None
             newhostname = random.choice(newhostnames) if len(newhostnames) > 0 else None
             oldssh = 'ssh -i ~/.ssh/ecs-login-{}-id_rsa -l ec2-user {}'.format(self.stage,oldhostname)
@@ -404,30 +473,29 @@ class ConfigMenu:
                 print('THEN. The old Drupal and Redirect services will be removed from ELB')
             print('')
             input('Press Enter to proceed ... ')
-   
+
             if oldhostname is not None:
                 print('')
                 print('----')
                 cmd = '{0} uptime'.format(oldssh, '{{.ID}}')
                 print('Running on the _old_ ECS host ... to get rid of any SSH unknown host warnings:\n  {0}'.format(cmd))
                 subprocess.call (cmd, shell=True)
-        
+
                 print('')
                 print('----')
                 cmd = '{0} docker ps --filter status=running --filter label=com.amazonaws.ecs.container-name=site-buildbarbuda --format {1} | sort --random-sort | head -n1'.format(oldssh, '{{.ID}}')
                 print('Finding a random site-buildbarbuda container on the _old_ ECS host:\n  {0}'.format(cmd))
-        
                 p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
                 webid = p.stdout.read().rstrip()
                 drush = '{0} docker exec -it {1} runuser -u drupaladmin /home/drupaladmin/bin/drush'.format(oldsshinteractive, webid)
-        
+
                 print('')
                 print('----')
                 print('Found Docker container id {0} for old site-buildbarbuda'.format(webid))
                 cmd = '{0} sset system.maintenance_mode 1'.format(drush)
                 print('Running on the _old_ ECS host:\n  {0}'.format(cmd))
                 subprocess.call (cmd, shell=True)
-        
+
                 print('')
                 print('----')
                 cmd = '{0} cache-rebuild'.format(drush)
@@ -439,16 +507,15 @@ class ConfigMenu:
             cmd = '{0} uptime'.format(newssh, '{{.ID}}')
             print('Running on the _new_ ECS host ... to get rid of any SSH unknown host warnings:\n  {0}'.format(cmd))
             subprocess.call (cmd, shell=True)
-        
+
             print('')
             print('----')
             cmd = '{0} docker ps --filter status=running --filter label=com.amazonaws.ecs.container-name=site-buildbarbuda --format {1} | sort --random-sort | head -n1'.format(newssh, '{{.ID}}')
             print('Finding a random site-buildbarbuda container on the _new_ ECS host:\n  {0}'.format(cmd))
-    
             p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
             webid = p.stdout.read().rstrip()
             drush = '{0} docker exec -it {1} runuser -u drupaladmin /home/drupaladmin/bin/drush'.format(newsshinteractive, webid)
-    
+
             print('')
             print('----')
             print('Found Docker container id {0} for new site-buildbarbuda'.format(webid))
@@ -516,7 +583,7 @@ class ConfigMenu:
             cmd = '{0} sset system.maintenance_mode 0'.format(drush)
             print('Running on the _new_ ECS host:\n  {0}'.format(cmd))
             subprocess.call (cmd, shell=True)
-    
+
             cmd = '{0} cache-rebuild'.format(drush)
             print('Running on the _new_ ECS host:\n  {0}'.format(cmd))
             subprocess.call (cmd, shell=True)
@@ -556,7 +623,7 @@ class ConfigMenu:
 
                 # Truly dead?
                 if status == "DELETE_COMPLETE": continue
-    
+
                 # split out type, network id and possibly database id
                 (this_stacktype, this_network, this_database) = deconstruct_stack_name(stack)
                 # skip non-buildbarbuda stacks
@@ -581,11 +648,12 @@ class ConfigMenu:
                 creates.append(FunctionItem('Create new {0} stack from: {1} ({2})'.format(self.stacktype, stack, descr), self.create_stack, [this_network, this_database]))
 
             # skip non-network if not network, etc.
-            if self.stacktype != this_stacktype: continue 
+            if self.stacktype != this_stacktype: continue
 
             others.append(FunctionItem('Create changeset for {0} stack: {1} ({2})'.format(self.stacktype, stack, descr), self.create_changeset_stack, [stack, this_network, this_database]))
             others.append(FunctionItem('Update {0} stack directly:      {1} ({2})'.format(self.stacktype, stack, descr), self.update_stack, [stack, this_network, this_database]))
             if self.stacktype == 'compute':
+                others.append(FunctionItem('Mark {0} stack as good:         {1} ({2})'.format(self.stacktype, stack, descr), self.mark_compute_stack, [stack, this_network, this_database]))
                 others.append(FunctionItem('Promote {0} stack:              {1} ({2})'.format(self.stacktype, stack, descr), self.promote_compute_stack, [stack, all_compute_stacks, this_network, this_database]))
 
         items = creates + others
@@ -633,7 +701,7 @@ def main(stdscr):
     with open("cloudformation-{0}.yaml".format(stacktype), 'r') as cloudfile:
         cloudcfg = yaml.load(cloudfile)
         cloudparams = cloudcfg['Parameters']
-    
+
         preferencesfilename = expanduser("~/.buildbarbuda.{0}.site-aws.yml".format(stage))
         with open(preferencesfilename, 'a'): # open for appending (so auto-create if necessary)
           pass
