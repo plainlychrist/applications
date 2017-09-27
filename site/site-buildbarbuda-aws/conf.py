@@ -343,7 +343,9 @@ class ConfigMenu:
             print('New Drupal bindings: ', new_drupal_binds)
             input('Press Enter to proceed ... ')
 
-            # resolve all the container instances
+            new_cis = { b[0] for b in (new_redirect_binds | new_drupal_binds) }
+
+            # resolve all the container instances for the new stack
             cmd ='aws --profile site-{} --no-paginate --output json ecs describe-container-instances --cluster {} --container-instances {}'.format(self.stage, stack, ' '.join(all_cis))
             print(cmd)
             p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
@@ -352,17 +354,26 @@ class ConfigMenu:
             failures = output['failures']
             reported_cis = output['containerInstances']
 
-            # for old tasks (only) it is fine if their container instances are missing
-            old_missing_cis = set()
-            new_cis = { b[0] for b in (new_redirect_binds | new_drupal_binds) }
+            # safety check
             for failure in failures:
                 if failure['reason'] == 'MISSING':
                     ci = failure['arn']
                     if ci in new_cis:
                         raise Exception('Safety check failed. There is a new container instance {0} that is reported MISSING'.format(ci))
-                    old_missing_cis.add(ci)
-            if (len(reported_cis) + len(old_missing_cis)) != len(all_cis):
-                raise Exception('Safety check failed. Saw {0} reported and {1} old missing container instances, but we asked for {2} in total'.format( len(reported_cis), len(old_missing_cis), len(all_cis)))
+
+            # resolve all the container instances for the old stacks
+            for old_stack in old_stacks:
+                cmd ='aws --profile site-{} --no-paginate --output json ecs describe-container-instances --cluster {} --container-instances {}'.format(self.stage, old_stack, ' '.join(all_cis))
+                print(cmd)
+                p = subprocess.Popen(cmd, shell=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, universal_newlines=True)
+                jsonstr = p.stdout.read()
+                output = json.loads(jsonstr)
+                failures.extend(output['failures'])
+                reported_cis.extend(output['containerInstances'])
+
+            # for old tasks (only) it is fine if their container instances are missing
+            if len(reported_cis) != len(all_cis):
+                raise Exception('Safety check failed. Saw {} reported container instances, but we asked for {} in total'.format( len(reported_cis), len(all_cis)))
             ci_ec2instance_map = dict()
             for ci in reported_cis:
                 ci_ec2instance_map[ci['containerInstanceArn']] = ci['ec2InstanceId']
@@ -481,7 +492,6 @@ class ConfigMenu:
             targets = []
             for (ci, port) in old_redirect_binds:
                 if ci not in ci_ec2instance_map: continue
-                if ci not in old_missing_cis: continue
                 targets.append('Id={0},Port={1}'.format( ci_ec2instance_map[ci], port ))
             if len(targets) > 0:
                 cmd ='aws --profile site-{} --output text elbv2 deregister-targets --target-group-arn {} --targets {}'.format(self.stage, redirect_targetgroup, ' '.join(targets))
@@ -492,14 +502,13 @@ class ConfigMenu:
             targets = []
             for (ci, port) in old_drupal_binds:
                 if ci not in ci_ec2instance_map: continue
-                if ci not in old_missing_cis: continue
                 targets.append('Id={0},Port={1}'.format( ci_ec2instance_map[ci], port ))
             if len(targets) > 0:
                 cmd ='aws --profile site-{} --output text elbv2 deregister-targets --target-group-arn {} --targets {}'.format(self.stage, drupal_targetgroup, ' '.join(targets))
                 print(cmd)
                 subprocess.call (cmd, shell=True)
 
-            #`Finish bringing up the site
+            # Finish bringing up the site
             # NOTE: The order (putting out of maintenance, and then cache-rebuild) seems backwards but
             # let's follow the order in https://www.drupal.org/docs/8/update/update-procedure-in-drupal-8
             # (perhaps cache-rebuild does more when out-of-maintenance)
@@ -535,14 +544,18 @@ class ConfigMenu:
         if self.stacktype == 'network':
             creates.append(FunctionItem('Create new {0} stack'.format(self.stacktype), self.create_stack, [None, None]))
 
-        # find all the compute stacks ... even those that are in the middle of being deleted.
-        # if the user wants to 'Promote', then we must make sure everything is removed from the load balancer except the
+        # Find all the compute stacks except those truly dead ... even those that are in the middle of being deleted.
+        # If the user wants to 'Promote', then we must make sure everything is removed from the load balancer except the
         # machines in the new stack
         all_compute_stacks = None
         if self.stacktype == 'compute':
             all_compute_stacks = set()
             for summ in list_stacks(self.stage):
                 stack = summ["StackName"]
+                status = summ["StackStatus"]
+
+                # Truly dead?
+                if status == "DELETE_COMPLETE": continue
     
                 # split out type, network id and possibly database id
                 (this_stacktype, this_network, this_database) = deconstruct_stack_name(stack)
