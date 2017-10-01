@@ -459,6 +459,9 @@
                 ContainerPath: /var/www/html/sites/default/files
                 SourceVolume: var-www-html-site-default-files
               -
+                ContainerPath: /var/www/private
+                SourceVolume: var-www-private
+              -
                 ContainerPath: /var/ngx_pagespeed_cache
                 SourceVolume: var-ngx_pagespeed_cache
               -
@@ -535,6 +538,11 @@
             Host:
               SourcePath: "/mnt/site-shared-drupal-files/var-www-html-site-default-files"
             Name: var-www-html-site-default-files
+          -
+            # share /var/www/private on the EFS mount
+            Host:
+              SourcePath: "/mnt/site-shared-drupal-files/var-www-private"
+            Name: var-www-private
           -
             # share /var/ngx_pagespeed_cache on the EFS mount
             Host:
