@@ -75,7 +75,7 @@
     EcsInstanceType:
       Type: "String"
       Description: "ECS EC2 instance type"
-      Default: "t2.micro"
+      Default: "t2.small"
       AllowedValues:
         - "t2.micro"
         - "t2.small"
@@ -447,7 +447,7 @@
           -
             VolumesFrom: []
             Cpu: 1000 # Get at least 1000 of 1024 units of a single-core VCPU
-            Memory: 300
+            Memory: 500
             PortMappings:
               -
                 HostPort: 0 # random unallocated port; allow multiple containers in one machine
