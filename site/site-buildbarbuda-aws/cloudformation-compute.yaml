@@ -438,7 +438,7 @@
             Essential: true
             MountPoints: []
             Name: "docker-ssl-redirect"
-            Image: "plainlychrist/docker-ssl-redirect:unstable"
+            Image: "plainlychrist/docker-ssl-redirect:latest"
     EcsDrupalTaskDef:
       Type: "AWS::ECS::TaskDefinition"
       Properties:
@@ -509,7 +509,7 @@
                 Name: "POSTFIX_PASSWORD"
                 Value:
                   Ref: "EmailPassword"
-            Image: "plainlychrist/site-buildbarbuda:unstable"
+            Image: "plainlychrist/site-buildbarbuda:latest"
             Command:
               # hash salt
               - "--hash-salt"
